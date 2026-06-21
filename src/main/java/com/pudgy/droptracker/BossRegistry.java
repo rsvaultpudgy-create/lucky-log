@@ -792,6 +792,7 @@ public final class BossRegistry
 
 		add(new Boss("Duke Sucellus",
 			new Drop("Magus vestige", 720),
+			new Drop("Eye of the duke", 720),
 			new Drop("Chromium ingot", 240),
 			new Drop("Virtus mask", 2160),
 			new Drop("Virtus robe top", 2160),
@@ -833,8 +834,7 @@ public final class BossRegistry
 			Drop.common("Clue scroll (easy)", 160),
 			Drop.common("Clue scroll (medium)", 160),
 			Drop.common("Clue scroll (hard)", 160),
-			Drop.common("Clue scroll (elite)", 160),
-			Drop.common("Eye of the duke", 720)
+			Drop.common("Clue scroll (elite)", 160)
 		));
 
 		add(new Boss("The Leviathan",
