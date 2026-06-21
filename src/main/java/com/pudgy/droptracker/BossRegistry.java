@@ -5979,4 +5979,3 @@ public final class BossRegistry
 	}
 
 }
-                                         
