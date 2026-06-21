@@ -796,7 +796,7 @@ public final class BossRegistry
 			new Drop("Virtus mask", 2160),
 			new Drop("Virtus robe top", 2160),
 			new Drop("Virtus robe bottom", 2160),
-			new Drop("Baby duckling", 2500, true, "Pet"),
+			new Drop("Baron", 2500, true, "Pet"),
 			Drop.common("Awakener's orb", 48.5),
 			Drop.common("Frozen tablet", 25.8),
 			Drop.common("Ice quartz", 206.6),
@@ -834,8 +834,7 @@ public final class BossRegistry
 			Drop.common("Clue scroll (medium)", 160),
 			Drop.common("Clue scroll (hard)", 160),
 			Drop.common("Clue scroll (elite)", 160),
-			Drop.common("Eye of the duke", 720),
-			Drop.common("Baron", 2500)
+			Drop.common("Eye of the duke", 720)
 		));
 
 		add(new Boss("The Leviathan",
