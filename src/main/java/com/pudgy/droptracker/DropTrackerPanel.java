@@ -86,6 +86,7 @@ class DropTrackerPanel extends PluginPanel
 		titleRow.add(Box.createHorizontalStrut(4));
 		titleRow.add(emailButton());
 		titleRow.add(Box.createHorizontalGlue());
+		titleRow.add(importButton());
 		top.add(titleRow);
 		top.add(Box.createVerticalStrut(6));
 		top.add(grey("Search:"));
@@ -183,6 +184,34 @@ class DropTrackerPanel extends PluginPanel
 		return l;
 	}
 
+	// Obtain history sub-line: unknown (pre-tracking) count first, then each tracked KC.
+	private static String obtainSuffix(String kcLabel, int unknown, List<Integer> got)
+	{
+		java.util.List<String> parts = new java.util.ArrayList<>();
+		if (unknown > 0)
+		{
+			parts.add("<font color='#8a9b6e'>" + (unknown + "× unknown") + "</font>");
+		}
+		for (int kc : got)
+		{
+			parts.add("<font color='#9acd32'>" + kcLabel + kc + "</font>");
+		}
+		return "<br>&nbsp;&nbsp;" + String.join(" · ", parts);
+	}
+
+	private void confirmReset(BossRegistry.Boss b)
+	{
+		String msg = "<html><body style='width:230px'>This permanently clears all tracked loot, kill count, "
+			+ "and drop history for <b>" + b.display + "</b>. This cannot be undone.</body></html>";
+		int res = JOptionPane.showConfirmDialog(this, msg, "Reset " + b.display + "?",
+			JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+		if (res == JOptionPane.YES_OPTION)
+		{
+			plugin.resetBoss(b);
+			rerender();
+		}
+	}
+
 	private JButton supportButton()
 	{
 		BufferedImage img = plugin.supportImage();
@@ -217,6 +246,32 @@ class DropTrackerPanel extends PluginPanel
 		return b;
 	}
 
+	private JButton importButton()
+	{
+		JButton b = new JButton("Import Collection Log");
+		b.setFocusable(false);
+		b.setFont(b.getFont().deriveFont(11f));
+		b.setToolTipText("Fills in drops you got before Lucky Log, from your collection log.");
+		b.setMaximumSize(new Dimension(180, 26));
+		b.addActionListener(e -> importDialog());
+		return b;
+	}
+
+	private void importDialog()
+	{
+		String msg = "<html><body style='width:240px'>Fills in drops you got before installing Lucky Log.<br><br>"
+			+ "Open your Collection Log and click through each page so the game sends the data. "
+			+ "Drops received prior to using Lucky Log display as KC unknown. "
+			+ "This can be toggled off inside plugin settings at any time.</body></html>";
+		Object[] options = {"Import", "Cancel"};
+		int res = JOptionPane.showOptionDialog(this, msg, "Import from Collection Log",
+			JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE, null, options, options[0]);
+		if (res == 0)
+		{
+			plugin.armImport();
+		}
+	}
+
 	private static ImageIcon mailIcon()
 	{
 		int s = 22;
@@ -229,6 +284,35 @@ class DropTrackerPanel extends PluginPanel
 		g.drawRoundRect(x0, y0, w, h, 3, 3);
 		g.drawLine(x0, y0, x0 + w / 2, y0 + h / 2);
 		g.drawLine(x0 + w, y0, x0 + w / 2, y0 + h / 2);
+		g.dispose();
+		return new ImageIcon(img);
+	}
+
+	private static ImageIcon starIcon()
+	{
+		int s = 12;
+		BufferedImage img = new BufferedImage(s, s, BufferedImage.TYPE_INT_ARGB);
+		Graphics2D g = img.createGraphics();
+		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+		double cx = s / 2.0, cy = s / 2.0, rOut = s / 2.0 - 0.5, rIn = rOut * 0.45;
+		java.awt.geom.Path2D.Double star = new java.awt.geom.Path2D.Double();
+		for (int i = 0; i < 10; i++)
+		{
+			double r = (i % 2 == 0) ? rOut : rIn;
+			double a = -Math.PI / 2 + i * Math.PI / 5;
+			double x = cx + r * Math.cos(a), y = cy + r * Math.sin(a);
+			if (i == 0)
+			{
+				star.moveTo(x, y);
+			}
+			else
+			{
+				star.lineTo(x, y);
+			}
+		}
+		star.closePath();
+		g.setColor(new Color(0xFF, 0xD7, 0x00));
+		g.fill(star);
 		g.dispose();
 		return new ImageIcon(img);
 	}
@@ -292,10 +376,12 @@ class DropTrackerPanel extends PluginPanel
 		String d = b.display.toLowerCase();
 		return d.equals("wintertodt") || d.equals("tempoross") || d.equals("guardians of the rift");
 	}
+
 	private static String unit(BossRegistry.Boss b)
 	{
 		return isReward(b) ? "pulls" : "kills";
 	}
+
 	private static String unitCap(BossRegistry.Boss b)
 	{
 		return isReward(b) ? "Pulls" : "KC";
@@ -475,14 +561,22 @@ class DropTrackerPanel extends PluginPanel
 		for (BossRegistry.Drop d : b.notableDrops())
 		{
 			List<Integer> got = plugin.getUniqueKcs(b, d.name);
-			StringBuilder s = new StringBuilder("<html>").append(d.pet ? "★ " : "")
+			int rawUnknown = plugin.getUnknownCount(b, d.name);
+			int unknown = plugin.showUnknownKc() ? rawUnknown : 0;
+			StringBuilder s = new StringBuilder("<html>")
 				.append(d.name).append("  —  1/").append(fmt(d.oneInX));
-			if (!got.isEmpty())
+			if (unknown > 0 || !got.isEmpty())
 			{
-				s.append("<br>&nbsp;&nbsp;<font color='#9acd32'>got at ").append(isReward(b) ? "pull " : "KC ").append(join(got)).append("</font>");
+				s.append(obtainSuffix(isReward(b) ? "pull " : "KC ", unknown, got));
 			}
 			s.append("</html>");
-			body.add(line(s.toString(), d.pet ? new Color(0xFF, 0xD7, 0x00) : Color.WHITE));
+			JLabel dropLine = line(s.toString(), d.pet ? new Color(0xFF, 0xD7, 0x00) : Color.WHITE);
+			if (d.pet)
+			{
+				dropLine.setIcon(starIcon());
+				dropLine.setIconTextGap(4);
+			}
+			body.add(dropLine);
 		}
 
 		body.add(Box.createVerticalStrut(10));
@@ -575,17 +669,24 @@ class DropTrackerPanel extends PluginPanel
 		}
 		if (shown == 0)
 		{
-			body.add(line("<html><font color='#888'>No kills logged yet on this version — get a kill and it'll appear here with item icons.</font></html>", Color.GRAY));
+			body.add(line("<html><font color='#888888'>No kills logged yet on this version — get a kill and it'll appear here with item icons.</font></html>", Color.GRAY));
 		}
 	}
 
 	private void renderTotals(BossRegistry.Boss b)
 	{
-		body.add(line("<html><b>Total loot (all-time)</b></html>", Color.LIGHT_GRAY));
+		JLabel totalHeader = line("<html><b>Total loot (all-time)</b></html>", Color.LIGHT_GRAY);
+		totalHeader.setToolTipText("Right-click to reset tracked loot for this boss");
+		javax.swing.JPopupMenu resetMenu = new javax.swing.JPopupMenu();
+		javax.swing.JMenuItem resetItem = new javax.swing.JMenuItem("Reset " + b.display);
+		resetItem.addActionListener(ev -> confirmReset(b));
+		resetMenu.add(resetItem);
+		totalHeader.setComponentPopupMenu(resetMenu);
+		body.add(totalHeader);
 		List<ItemTotal> totals = plugin.getTotals(b);
 		if (totals.isEmpty())
 		{
-			body.add(line("<html><font color='#888'>Nothing tracked yet — totals build up as you kill.</font></html>", Color.GRAY));
+			body.add(line("<html><font color='#888888'>Nothing tracked yet — totals build up as you kill.</font></html>", Color.GRAY));
 			return;
 		}
 		long grand = 0;
@@ -705,6 +806,7 @@ class DropTrackerPanel extends PluginPanel
 			imageLabel.setIcon(new ImageIcon(fitImage(img, 52, 52)));
 		});
 	}
+
 	private static Image fitImage(BufferedImage img, int maxW, int maxH)
 	{
 		int w = img.getWidth(), hh = img.getHeight();

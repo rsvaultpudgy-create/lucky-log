@@ -32,6 +32,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.inject.Inject;
 import javax.swing.SwingUtilities;
@@ -40,6 +42,11 @@ import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.ItemComposition;
 import net.runelite.api.events.ChatMessage;
+import net.runelite.api.ScriptID;
+import net.runelite.api.events.ScriptPostFired;
+import net.runelite.api.widgets.ComponentID;
+import net.runelite.api.widgets.Widget;
+import net.runelite.api.widgets.InterfaceID;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
@@ -166,6 +173,8 @@ public class DropTrackerPlugin extends Plugin
 
 	private DropTrackerPanel panel;
 	private NavigationButton nav;
+	private boolean importArmed;
+	private final java.util.Set<String> importedPages = new java.util.HashSet<>();
 
 	@Override
 	protected void startUp()
@@ -195,6 +204,11 @@ public class DropTrackerPlugin extends Plugin
 	boolean showOdds()
 	{
 		return config == null || config.showOdds();
+	}
+
+	boolean showUnknownKc()
+	{
+		return config == null || config.showUnknownKc();
 	}
 
 	@Subscribe
@@ -262,11 +276,276 @@ public class DropTrackerPlugin extends Plugin
 		SwingUtilities.invokeLater(() -> panel.onKill(boss));
 	}
 
+	void armImport()
+	{
+		importArmed = true;
+		importedPages.clear();
+		clientThread.invoke(() -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
+			"Lucky Log: open your Collection Log and click through each page to import.", null));
+	}
+
+	@Subscribe
+	public void onScriptPostFired(ScriptPostFired e)
+	{
+		if (importArmed && e.getScriptId() == ScriptID.COLLECTION_DRAW_LIST)
+		{
+			clientThread.invokeLater(() ->
+			{
+				readCollectionLogPage();
+				highlightPages();
+			});
+		}
+	}
+
+	private void readCollectionLogPage()
+	{
+		Widget header = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_HEADER);
+		Widget itemsW = client.getWidget(ComponentID.COLLECTION_LOG_ENTRY_ITEMS);
+		if (header == null || itemsW == null)
+		{
+			return;
+		}
+		Widget[] hc = header.getDynamicChildren();
+		if (hc.length == 0)
+		{
+			return;
+		}
+		String pageTitle = Text.removeTags(hc[0].getText()).trim();
+		BossRegistry.Boss page = findBossByPage(pageTitle);
+		int kc = -1;
+		if (page != null)
+		{
+			for (int i = 2; i < hc.length; i++)
+			{
+				int v = lastInt(hc[i].getText());
+				if (v >= 0)
+				{
+					kc = v;
+					break;
+				}
+			}
+			if (kc >= 0)
+			{
+				setKc(page, Math.max(getKc(page), kc));
+			}
+		}
+		java.util.Set<String> touched = new java.util.HashSet<>();
+		int imported = 0;
+		for (Widget w : itemsW.getDynamicChildren())
+		{
+			if (w.getItemId() <= 0 || w.getOpacity() != 0)
+			{
+				continue;
+			}
+			String name;
+			try
+			{
+				name = itemManager.getItemComposition(w.getItemId()).getName();
+			}
+			catch (Exception ex)
+			{
+				continue;
+			}
+			int qty = Math.max(1, w.getItemQuantity());
+			for (BossRegistry.Boss b : BossRegistry.all())
+			{
+				if (page != null && !b.display.equals(page.display))
+				{
+					continue;
+				}
+				for (BossRegistry.Drop d : b.drops)
+				{
+					if (d.notable && d.name.equalsIgnoreCase(name))
+					{
+						importObtained(b, d.name, qty);
+						touched.add(b.display);
+						imported++;
+					}
+				}
+			}
+		}
+		if (kc >= 0 || imported > 0)
+		{
+			String who = page != null ? page.display : (touched.size() + (touched.size() == 1 ? " boss" : " bosses"));
+			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
+				"Lucky Log: imported " + who + (kc >= 0 ? " (KC " + kc + ")" : "") + ".", null);
+			if (panel != null)
+			{
+				SwingUtilities.invokeLater(panel::rerender);
+			}
+		}
+		importedPages.add(pageTitle.toLowerCase());
+	}
+
+	private BossRegistry.Boss findBossByPage(String title)
+	{
+		if (title == null)
+		{
+			return null;
+		}
+		String t = Text.removeTags(title).trim();
+		for (BossRegistry.Boss b : BossRegistry.all())
+		{
+			if (b.display.equalsIgnoreCase(t))
+			{
+				return b;
+			}
+		}
+		if (t.toLowerCase().endsWith("s"))
+		{
+			String singular = t.substring(0, t.length() - 1);
+			for (BossRegistry.Boss b : BossRegistry.all())
+			{
+				if (b.display.equalsIgnoreCase(singular))
+				{
+					return b;
+				}
+			}
+		}
+		return BossRegistry.byLootName(t);
+	}
+
+	private void highlightPages()
+	{
+		Widget tab = getActiveTab();
+		if (tab == null)
+		{
+			return;
+		}
+		String tabName = Text.removeTags(tab.getName());
+		Widget pageList = getActivePageList(tabName);
+		if (pageList == null)
+		{
+			return;
+		}
+		boolean allWanted = tabName.equalsIgnoreCase("Bosses") || tabName.equalsIgnoreCase("Raids");
+		boolean otherTab = tabName.equalsIgnoreCase("Other");
+		Widget[] names = pageList.getDynamicChildren();
+		if (names == null)
+		{
+			return;
+		}
+		for (Widget nameW : names)
+		{
+			String name = nameW.getText();
+			if (name == null)
+			{
+				continue;
+			}
+			name = name.replace(" *", "");
+			boolean slayerOrTd = name.equalsIgnoreCase("Slayer") || name.equalsIgnoreCase("Tormented Demons");
+			boolean wanted = allWanted || (otherTab && slayerOrTd);
+			if (importArmed && wanted && !importedPages.contains(name.toLowerCase()))
+			{
+				nameW.setText(name + " *");
+			}
+			else
+			{
+				nameW.setText(name);
+			}
+		}
+	}
+
+	private Widget getActiveTab()
+	{
+		Widget tabs = client.getWidget(ComponentID.COLLECTION_LOG_TABS);
+		if (tabs == null)
+		{
+			return null;
+		}
+		int idx = client.getVarbitValue(6905);
+		Widget[] sc = tabs.getStaticChildren();
+		if (sc == null || idx < 0 || idx >= sc.length)
+		{
+			return null;
+		}
+		return sc[idx];
+	}
+
+	private Widget getActivePageList(String tabName)
+	{
+		String t = tabName.toLowerCase();
+		if (t.equals("other"))
+		{
+			return findListContaining("Slayer", "Tormented Demons");
+		}
+		int listIndex = -1;
+		if (t.equals("bosses"))
+		{
+			listIndex = 12;
+		}
+		else if (t.equals("raids"))
+		{
+			listIndex = 16;
+		}
+		if (listIndex < 0)
+		{
+			return null;
+		}
+		return client.getWidget(InterfaceID.COLLECTION_LOG, listIndex);
+	}
+
+	private Widget findListContaining(String a, String b)
+	{
+		for (int i = 10; i < 60; i++)
+		{
+			Widget w = client.getWidget(InterfaceID.COLLECTION_LOG, i);
+			if (w == null || w.getDynamicChildren() == null)
+			{
+				continue;
+			}
+			boolean hasA = false;
+			boolean hasB = false;
+			for (Widget c : w.getDynamicChildren())
+			{
+				String txt = c.getText();
+				if (txt == null)
+				{
+					continue;
+				}
+				if (txt.contains(a))
+				{
+					hasA = true;
+				}
+				if (txt.contains(b))
+				{
+					hasB = true;
+				}
+			}
+			if (hasA && hasB)
+			{
+				return w;
+			}
+		}
+		return null;
+	}
+
+	private static int lastInt(String s)
+	{
+		if (s == null)
+		{
+			return -1;
+		}
+		Matcher m = Pattern.compile("([0-9][0-9,]*)").matcher(s);
+		int v = -1;
+		while (m.find())
+		{
+			String num = m.group(1).replace(",", "");
+			if (num.length() <= 9)
+			{
+				v = Integer.parseInt(num);
+			}
+		}
+		return v;
+	}
+
+
 	// --- keys ---
 	private String key(BossRegistry.Boss b)
 	{
 		return b.display.toLowerCase().replace(' ', '_');
 	}
+
 	private String dkey(String drop)
 	{
 		return drop.toLowerCase().replace(' ', '_').replace("'", "");
@@ -278,6 +557,7 @@ public class DropTrackerPlugin extends Plugin
 		Integer v = configManager.getConfiguration(GROUP, "kc_" + key(b), Integer.class);
 		return v == null ? 0 : v;
 	}
+
 	void setKc(BossRegistry.Boss b, int v)
 	{
 		configManager.setConfiguration(GROUP, "kc_" + key(b), Math.max(0, v));
@@ -288,6 +568,7 @@ public class DropTrackerPlugin extends Plugin
 	{
 		return configManager.getConfiguration(GROUP, "goal_" + key(b), String.class);
 	}
+
 	void setGoal(BossRegistry.Boss b, String drop)
 	{
 		if (drop == null)
@@ -299,6 +580,7 @@ public class DropTrackerPlugin extends Plugin
 			configManager.setConfiguration(GROUP, "goal_" + key(b), drop);
 		}
 	}
+
 	int getLastDropKc(BossRegistry.Boss b, String drop)
 	{
 		List<Integer> kcs = getUniqueKcs(b, drop);
@@ -325,11 +607,53 @@ public class DropTrackerPlugin extends Plugin
 			return new ArrayList<>();
 		}
 	}
+
 	private void addUniqueKc(BossRegistry.Boss b, String item, int kc)
 	{
 		List<Integer> l = getUniqueKcs(b, item);
 		l.add(kc);
 		configManager.setConfiguration(GROUP, "ukc_" + key(b) + "_" + dkey(item), gson.toJson(l));
+	}
+
+	// "obtained before Lucky Log" counts (collection-log import)
+	int getUnknownCount(BossRegistry.Boss b, String item)
+	{
+		Integer v = configManager.getConfiguration(GROUP, "unk_" + key(b) + "_" + dkey(item), Integer.class);
+		return v == null ? 0 : v;
+	}
+
+	void setUnknownCount(BossRegistry.Boss b, String item, int n)
+	{
+		if (n <= 0)
+		{
+			configManager.unsetConfiguration(GROUP, "unk_" + key(b) + "_" + dkey(item));
+		}
+		else
+		{
+			configManager.setConfiguration(GROUP, "unk_" + key(b) + "_" + dkey(item), n);
+		}
+	}
+
+	void importObtained(BossRegistry.Boss b, String item, int collectionLogTotal)
+	{
+		int tracked = getUniqueKcs(b, item).size();
+		setUnknownCount(b, item, Math.max(0, collectionLogTotal - tracked));
+	}
+
+	void resetBoss(BossRegistry.Boss b)
+	{
+		String k = key(b);
+		configManager.unsetConfiguration(GROUP, "kc_" + k);
+		configManager.unsetConfiguration(GROUP, "hist_" + k);
+		configManager.unsetConfiguration(GROUP, "totals_" + k);
+		configManager.unsetConfiguration(GROUP, "rsum_" + k);
+		configManager.unsetConfiguration(GROUP, "rcnt_" + k);
+		for (BossRegistry.Drop d : b.drops)
+		{
+			configManager.unsetConfiguration(GROUP, "ukc_" + k + "_" + dkey(d.name));
+			configManager.unsetConfiguration(GROUP, "unk_" + k + "_" + dkey(d.name));
+			configManager.unsetConfiguration(GROUP, "rsnap_" + k + "_" + dkey(d.name));
+		}
 	}
 
 	// --- per-kill loot feed history ---
@@ -352,6 +676,7 @@ public class DropTrackerPlugin extends Plugin
 			return new ArrayList<>();
 		}
 	}
+
 	private void saveHistory(BossRegistry.Boss b, List<LootEntry> h)
 	{
 		while (h.size() > HISTORY_CAP)
@@ -409,6 +734,7 @@ public class DropTrackerPlugin extends Plugin
 		}
 		return m;
 	}
+
 	private void saveTotals(BossRegistry.Boss b, Map<Integer, ItemTotal> m)
 	{
 		configManager.setConfiguration(GROUP, "totals_" + key(b), gson.toJson(m));
@@ -417,7 +743,7 @@ public class DropTrackerPlugin extends Plugin
 	List<ItemTotal> getTotals(BossRegistry.Boss b)
 	{
 		List<ItemTotal> l = new ArrayList<>(getTotalsMap(b).values());
-		l.sort((a, c) -> Integer.compare(c.count, a.count));
+		l.sort((a, c) -> Long.compare((long) unitPrice(c.id) * c.total, (long) unitPrice(a.id) * a.total));
 		return l;
 	}
 
@@ -530,16 +856,19 @@ public class DropTrackerPlugin extends Plugin
 		Double v = configManager.getConfiguration(GROUP, "rsum_" + key(b), Double.class);
 		return v == null ? 0.0 : v;
 	}
+
 	int getRaidCount(BossRegistry.Boss b)
 	{
 		Integer v = configManager.getConfiguration(GROUP, "rcnt_" + key(b), Integer.class);
 		return v == null ? 0 : v;
 	}
+
 	private double getRaidSnap(BossRegistry.Boss b, String item)
 	{
 		Double v = configManager.getConfiguration(GROUP, "rsnap_" + key(b) + "_" + dkey(item), Double.class);
 		return v == null ? 0.0 : v;
 	}
+
 	private void setRaidSnap(BossRegistry.Boss b, String item)
 	{
 		if (RAID_WEIGHTS.containsKey(b.display.toLowerCase()))
@@ -590,6 +919,7 @@ public class DropTrackerPlugin extends Plugin
 			return 0L;
 		}
 	}
+
 	long unitPrice(int id)
 	{
 		Long v = valueCache.get(id);
@@ -722,6 +1052,7 @@ public class DropTrackerPlugin extends Plugin
 		}
 		return false;
 	}
+
 	int iconId(String name)
 	{
 		if (name == null)
@@ -749,6 +1080,7 @@ public class DropTrackerPlugin extends Plugin
 		s = s.replaceAll("[^a-z0-9]+", "_");
 		return s.replaceAll("^_+", "").replaceAll("_+$", "");
 	}
+
 	BufferedImage supportImage()
 	{
 		String path = "/com/pudgy/droptracker/support.png";
@@ -765,6 +1097,7 @@ public class DropTrackerPlugin extends Plugin
 			return null;
 		}
 	}
+
 	BufferedImage bossImage(BossRegistry.Boss b)
 	{
 		if (b == null)

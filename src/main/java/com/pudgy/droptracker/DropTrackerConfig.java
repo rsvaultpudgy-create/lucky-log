@@ -41,4 +41,15 @@ public interface DropTrackerConfig extends Config
 	{
 		return true;
 	}
+
+	@ConfigItem(
+		keyName = "showUnknownKc",
+		name = "Show pre-Lucky Log drops",
+		description = "Show uniques imported from your collection log that have no recorded kill count (shown as unknown).",
+		position = 2
+	)
+	default boolean showUnknownKc()
+	{
+		return true;
+	}
 }
