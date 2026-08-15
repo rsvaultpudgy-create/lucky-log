@@ -64,6 +64,8 @@ class DropTrackerPanel extends PluginPanel
 	private final JTextField searchField = new JTextField();
 	private final JToggleButton totalBtn = new JToggleButton("Total Loot");
 	private final JButton setKcBtn = new JButton("Set KC");
+	private final JButton shareBtn = new JButton("Share Card");
+	private final ShareCardRenderer cardRenderer;
 	private final JLabel header = new JLabel();
 	private final JLabel imageLabel = new JLabel();
 	private final JPanel body = new JPanel();
@@ -73,6 +75,7 @@ class DropTrackerPanel extends PluginPanel
 	{
 		this.plugin = plugin;
 		this.itemManager = itemManager;
+		this.cardRenderer = new ShareCardRenderer(plugin, itemManager);
 		setLayout(new BorderLayout());
 		setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
@@ -161,6 +164,12 @@ class DropTrackerPanel extends PluginPanel
 		totalBtn.setToolTipText("Toggle between the recent-kill feed and your all-time totals for this boss.");
 		totalBtn.addActionListener(e -> refresh());
 		top.add(totalBtn);
+		top.add(Box.createVerticalStrut(4));
+		shareBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
+		shareBtn.setFocusable(false);
+		shareBtn.setToolTipText("Create a shareable image card — copy it to your clipboard or save it as a PNG.");
+		shareBtn.addActionListener(e -> showShareMenu());
+		top.add(shareBtn);
 		top.add(Box.createVerticalStrut(8));
 		add(top, BorderLayout.NORTH);
 
@@ -723,6 +732,145 @@ class DropTrackerPanel extends PluginPanel
 			row.add(lbl);
 			row.add(Box.createHorizontalGlue());
 			body.add(row);
+		}
+	}
+
+	// ===== share cards =====
+
+	private void showShareMenu()
+	{
+		BossRegistry.Boss b = current();
+		javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+		if (b != null)
+		{
+			javax.swing.JMenuItem copyBoss = new javax.swing.JMenuItem("Copy " + b.display + " card");
+			copyBoss.addActionListener(e -> makeCard(b, false));
+			menu.add(copyBoss);
+			javax.swing.JMenuItem saveBoss = new javax.swing.JMenuItem("Save " + b.display + " card as PNG");
+			saveBoss.addActionListener(e -> makeCard(b, true));
+			menu.add(saveBoss);
+			menu.addSeparator();
+		}
+		javax.swing.JMenuItem copyAll = new javax.swing.JMenuItem("Copy overview card");
+		copyAll.addActionListener(e -> makeCard(null, false));
+		menu.add(copyAll);
+		javax.swing.JMenuItem saveAll = new javax.swing.JMenuItem("Save overview card as PNG");
+		saveAll.addActionListener(e -> makeCard(null, true));
+		menu.add(saveAll);
+		menu.show(shareBtn, 0, shareBtn.getHeight());
+	}
+
+	/** boss == null renders the overview card; save == false copies to the clipboard. */
+	private void makeCard(BossRegistry.Boss boss, boolean save)
+	{
+		shareBtn.setEnabled(false);
+		shareBtn.setText("Rendering…");
+		plugin.snapshotForCards(boss, () ->
+			new Thread(() ->
+			{
+				BufferedImage card = null;
+				String error = null;
+				try
+				{
+					card = boss != null ? cardRenderer.renderBossCard(boss) : cardRenderer.renderOverviewCard();
+				}
+				catch (Exception ex)
+				{
+					error = ex.getMessage();
+				}
+				String feedback;
+				if (card == null)
+				{
+					feedback = "Card failed" + (error != null ? ": " + error : "");
+				}
+				else if (save)
+				{
+					feedback = saveCard(card, boss);
+				}
+				else
+				{
+					feedback = copyCard(card);
+				}
+				String fb = feedback;
+				javax.swing.SwingUtilities.invokeLater(() ->
+				{
+					shareBtn.setText(fb);
+					new javax.swing.Timer(2500, ev ->
+					{
+						shareBtn.setText("Share Card");
+						shareBtn.setEnabled(true);
+					})
+					{
+						{
+							setRepeats(false);
+						}
+					}.start();
+				});
+			}, "luckylog-card").start());
+	}
+
+	private static String copyCard(BufferedImage img)
+	{
+		try
+		{
+			java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new ImageSelection(img), null);
+			return "Copied — paste it anywhere!";
+		}
+		catch (Exception e)
+		{
+			return "Clipboard unavailable";
+		}
+	}
+
+	private static String saveCard(BufferedImage img, BossRegistry.Boss boss)
+	{
+		try
+		{
+			java.io.File dir = new java.io.File(net.runelite.client.RuneLite.SCREENSHOT_DIR, "lucky-log");
+			if (!dir.exists() && !dir.mkdirs())
+			{
+				return "Couldn't create folder";
+			}
+			String stem = boss != null ? DropTrackerPlugin.imgKey(boss.display) : "overview";
+			java.io.File f = new java.io.File(dir, "luckylog-" + stem + "-" + System.currentTimeMillis() + ".png");
+			javax.imageio.ImageIO.write(img, "png", f);
+			return "Saved to screenshots";
+		}
+		catch (Exception e)
+		{
+			return "Save failed";
+		}
+	}
+
+	private static final class ImageSelection implements java.awt.datatransfer.Transferable
+	{
+		private final java.awt.Image image;
+
+		private ImageSelection(java.awt.Image image)
+		{
+			this.image = image;
+		}
+
+		@Override
+		public java.awt.datatransfer.DataFlavor[] getTransferDataFlavors()
+		{
+			return new java.awt.datatransfer.DataFlavor[]{java.awt.datatransfer.DataFlavor.imageFlavor};
+		}
+
+		@Override
+		public boolean isDataFlavorSupported(java.awt.datatransfer.DataFlavor flavor)
+		{
+			return java.awt.datatransfer.DataFlavor.imageFlavor.equals(flavor);
+		}
+
+		@Override
+		public Object getTransferData(java.awt.datatransfer.DataFlavor flavor) throws java.awt.datatransfer.UnsupportedFlavorException
+		{
+			if (!isDataFlavorSupported(flavor))
+			{
+				throw new java.awt.datatransfer.UnsupportedFlavorException(flavor);
+			}
+			return image;
 		}
 	}
 

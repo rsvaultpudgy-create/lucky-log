@@ -175,6 +175,7 @@ public class DropTrackerPlugin extends Plugin
 	private NavigationButton nav;
 	private boolean importArmed;
 	private final java.util.Set<String> importedPages = new java.util.HashSet<>();
+	private volatile String cardPlayerName;
 
 	@Override
 	protected void startUp()
@@ -1008,6 +1009,49 @@ public class DropTrackerPlugin extends Plugin
 				SwingUtilities.invokeLater(() -> panel.onKill(b));
 			}
 		});
+	}
+
+	/**
+	 * Warm everything a share card needs (player name, GE prices for every boss with
+	 * tracked loot, icon ids for the selected boss) on the client thread, then run
+	 * {@code done} on the EDT. Prices land in {@link #valueCache} so the render step
+	 * itself never has to touch the client thread.
+	 */
+	void snapshotForCards(BossRegistry.Boss selected, Runnable done)
+	{
+		clientThread.invoke(() ->
+		{
+			try
+			{
+				if (client.getLocalPlayer() != null && client.getLocalPlayer().getName() != null)
+				{
+					cardPlayerName = client.getLocalPlayer().getName();
+				}
+				if (selected != null)
+				{
+					for (BossRegistry.Drop d : selected.notableDrops())
+					{
+						resolveIcon(d.name);
+					}
+				}
+				for (BossRegistry.Boss b : BossRegistry.all())
+				{
+					for (ItemTotal t : getTotalsMap(b).values())
+					{
+						valueCache.put(t.id, safePrice(t.id));
+					}
+				}
+			}
+			catch (Exception ignored)
+			{
+			}
+			SwingUtilities.invokeLater(done);
+		});
+	}
+
+	String cardPlayerName()
+	{
+		return cardPlayerName == null ? "" : cardPlayerName;
 	}
 
 	private boolean resolveIcon(String name)
