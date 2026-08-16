@@ -71,6 +71,12 @@ public final class BossRegistry
 			this.drops = Arrays.asList(drops);
 		}
 
+		/** Display name without a leading "The", for UI lists, sorting and cards. */
+		public String shortName()
+		{
+			return display.regionMatches(true, 0, "The ", 0, 4) ? display.substring(4) : display;
+		}
+
 		public Double rateFor(String itemName)
 		{
 			for (Drop d : drops)
@@ -124,12 +130,17 @@ public final class BossRegistry
 				b = BY_NAME.get(a);
 			}
 		}
+		if (b == null)
+		{
+			// UI uses shortName() (no leading "The"); map it back to the stored name
+			b = BY_NAME.get("the " + key);
+		}
 		return b;
 	}
 	public static List<Boss> all()
 	{
 		List<Boss> l = new ArrayList<>(BY_NAME.values());
-		l.sort((a, b) -> a.display.compareToIgnoreCase(b.display));
+		l.sort((a, b) -> a.shortName().compareToIgnoreCase(b.shortName()));
 		return l;
 	}
 

@@ -332,7 +332,7 @@ class DropTrackerPanel extends PluginPanel
 		bossBox.removeAllItems();
 		for (BossRegistry.Boss b : BossRegistry.all())
 		{
-			bossBox.addItem(b.display);
+			bossBox.addItem(b.shortName());
 		}
 		updating = false;
 		if (bossBox.getItemCount() > 0)
@@ -430,14 +430,14 @@ class DropTrackerPanel extends PluginPanel
 		java.util.List<String> contains = new java.util.ArrayList<>();
 		for (BossRegistry.Boss b : BossRegistry.all())
 		{
-			String dl = b.display.toLowerCase();
+			String dl = b.shortName().toLowerCase();
 			if (s.isEmpty() || dl.startsWith(s))
 			{
-				starts.add(b.display);
+				starts.add(b.shortName());
 			}
 			else if (dl.contains(s))
 			{
-				contains.add(b.display);
+				contains.add(b.shortName());
 			}
 		}
 		starts.addAll(contains);
@@ -462,7 +462,7 @@ class DropTrackerPanel extends PluginPanel
 	void onKill(BossRegistry.Boss b)
 	{
 		Object sel = bossBox.getSelectedItem();
-		if (sel != null && b.display.equals(sel))
+		if (sel != null && b.shortName().equals(sel))
 		{
 			refresh();
 			return;
@@ -472,9 +472,9 @@ class DropTrackerPanel extends PluginPanel
 		bossBox.removeAllItems();
 		for (BossRegistry.Boss bb : BossRegistry.all())
 		{
-			bossBox.addItem(bb.display);
+			bossBox.addItem(bb.shortName());
 		}
-		bossBox.setSelectedItem(b.display);
+		bossBox.setSelectedItem(b.shortName());
 		updating = false;
 		selectBoss();
 	}
@@ -743,10 +743,10 @@ class DropTrackerPanel extends PluginPanel
 		javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
 		if (b != null)
 		{
-			javax.swing.JMenuItem copyBoss = new javax.swing.JMenuItem("Copy " + b.display + " card");
+			javax.swing.JMenuItem copyBoss = new javax.swing.JMenuItem("Copy " + b.shortName() + " card");
 			copyBoss.addActionListener(e -> makeCard(b, false));
 			menu.add(copyBoss);
-			javax.swing.JMenuItem saveBoss = new javax.swing.JMenuItem("Save " + b.display + " card as PNG");
+			javax.swing.JMenuItem saveBoss = new javax.swing.JMenuItem("Save " + b.shortName() + " card as PNG");
 			saveBoss.addActionListener(e -> makeCard(b, true));
 			menu.add(saveBoss);
 			menu.addSeparator();

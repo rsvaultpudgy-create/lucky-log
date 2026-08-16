@@ -128,7 +128,7 @@ class ShareCardRenderer
 		// boss name
 		g.setFont(bold(42f));
 		g.setColor(GOLD);
-		drawTruncated(g, b.display, 40, 148, 890);
+		drawTruncated(g, b.shortName(), 40, 148, 890);
 
 		// stat blocks
 		long grand = 0;
@@ -138,10 +138,11 @@ class ShareCardRenderer
 			grand += plugin.unitPrice(t.id) * t.total;
 			drops += t.count;
 		}
+		boolean showUnknown = plugin.showUnknownKc();
 		int got = 0;
 		for (BossRegistry.Drop d : notables)
 		{
-			if (!plugin.getUniqueKcs(b, d.name).isEmpty() || plugin.getUnknownCount(b, d.name) > 0)
+			if (!plugin.getUniqueKcs(b, d.name).isEmpty() || (showUnknown && plugin.getUnknownCount(b, d.name) > 0))
 			{
 				got++;
 			}
@@ -252,7 +253,7 @@ class ShareCardRenderer
 		drawTruncated(g, d.name, tx, y + 18, w - 42);
 
 		List<Integer> gotKcs = plugin.getUniqueKcs(b, d.name);
-		int unknown = plugin.getUnknownCount(b, d.name);
+		int unknown = plugin.showUnknownKc() ? plugin.getUnknownCount(b, d.name) : 0;
 		String status;
 		Color sc;
 		if (!gotKcs.isEmpty() || unknown > 0)
@@ -309,14 +310,16 @@ class ShareCardRenderer
 		double ratio;
 		int detail; // dry-streak length or the KC gap it landed in
 		boolean ongoing; // true when the streak hasn't ended yet
+		double pct; // % of players who would have the drop within that many kills
 	}
 
 	BufferedImage renderOverviewCard()
 	{
 		List<BossRegistry.Boss> all = BossRegistry.all();
 
+		boolean showUnknown = plugin.showUnknownKc();
 		long grandTotal = 0;
-		long totalKills = 0;
+		long totalDrops = 0;
 		int uniquesObtained = 0;
 		Map<BossRegistry.Boss, Long> gpByBoss = new HashMap<>();
 		BossRegistry.Boss highestKcBoss = null;
@@ -328,7 +331,6 @@ class ShareCardRenderer
 		for (BossRegistry.Boss b : all)
 		{
 			int kc = plugin.getKc(b);
-			totalKills += plugin.getSeenKc(b);
 			if (kc > highestKc)
 			{
 				highestKc = kc;
@@ -338,6 +340,7 @@ class ShareCardRenderer
 			for (ItemTotal t : plugin.getTotals(b))
 			{
 				gp += plugin.unitPrice(t.id) * t.total;
+				totalDrops += t.count;
 			}
 			if (gp > 0)
 			{
@@ -347,7 +350,7 @@ class ShareCardRenderer
 			for (BossRegistry.Drop d : b.notableDrops())
 			{
 				List<Integer> gotKcs = plugin.getUniqueKcs(b, d.name);
-				uniquesObtained += gotKcs.size() + plugin.getUnknownCount(b, d.name);
+				uniquesObtained += gotKcs.size() + (showUnknown ? plugin.getUnknownCount(b, d.name) : 0);
 				if (d.oneInX <= 0)
 				{
 					continue;
@@ -372,11 +375,11 @@ class ShareCardRenderer
 						double ratio = since / d.oneInX;
 						if (since > 0 && (curDry == null || ratio > curDry.ratio))
 						{
-							curDry = highlight(b, d.name, ratio, since, true);
+							curDry = highlight(b, d.name, ratio, since, true, pctByNow(d.oneInX, since));
 						}
 						if (since > 0 && (allDry == null || ratio > allDry.ratio))
 						{
-							allDry = highlight(b, d.name, ratio, since, true);
+							allDry = highlight(b, d.name, ratio, since, true, pctByNow(d.oneInX, since));
 						}
 					}
 				}
@@ -393,11 +396,11 @@ class ShareCardRenderer
 					double ratio = gap / d.oneInX;
 					if (allDry == null || ratio > allDry.ratio)
 					{
-						allDry = highlight(b, d.name, ratio, gap, false);
+						allDry = highlight(b, d.name, ratio, gap, false, pctByNow(d.oneInX, gap));
 					}
 					if (d.oneInX >= 20 && (lucky == null || ratio < lucky.ratio))
 					{
-						lucky = highlight(b, d.name, ratio, k, false);
+						lucky = highlight(b, d.name, ratio, k, false, pctByNow(d.oneInX, gap));
 					}
 				}
 			}
@@ -423,7 +426,7 @@ class ShareCardRenderer
 
 		int bx = 40;
 		bx = statBlock(g, bx, 116, "TOTAL LOOT TRACKED", fmtGp(grandTotal), valColor(grandTotal));
-		bx = statBlock(g, bx, 116, "KILLS TRACKED", String.format("%,d", totalKills), CREAM);
+		bx = statBlock(g, bx, 116, "DROPS TRACKED", String.format("%,d", totalDrops), CREAM);
 		statBlock(g, bx, 116, "UNIQUES OBTAINED", String.format("%,d", uniquesObtained), uniquesObtained > 0 ? GREEN : CREAM);
 
 		// three highlight panels
@@ -431,13 +434,13 @@ class ShareCardRenderer
 		int ph = 150;
 		int py = 190;
 		paintHighlight(g, 40, py, pw, ph, "CURRENT DRIEST", DRY_RED, curDry, sprites,
-			curDry == null ? null : String.format("%,d dry · %.1f× the rate", curDry.detail, curDry.ratio));
+			curDry == null ? null : String.format("%,d dry · %.1f%% of players would have it", curDry.detail, curDry.pct));
 		paintHighlight(g, 40 + pw + 17, py, pw, ph, "ALL-TIME DRIEST", new Color(0xe8, 0xa8, 0x5c), allDry, sprites,
 			allDry == null ? null : String.format(allDry.ongoing
-				? "%,d and counting · %.1f× the rate"
-				: "went %,d · %.1f× the rate", allDry.detail, allDry.ratio));
+				? "%,d and counting · %.1f%% would have it"
+				: "went %,d · %.1f%% would have it", allDry.detail, allDry.pct));
 		paintHighlight(g, 40 + (pw + 17) * 2, py, pw, ph, "LUCKIEST HIT", GREEN, lucky, sprites,
-			lucky == null ? null : String.format("hit at %.2f× the rate · KC %,d", lucky.ratio, lucky.detail));
+			lucky == null ? null : String.format("KC %,d · only %.1f%% would have it by then", lucky.detail, lucky.pct));
 
 		// top 5 most profitable bosses
 		g.setFont(bold(17f));
@@ -464,7 +467,7 @@ class ShareCardRenderer
 			}
 			g.setFont(bold(17f));
 			g.setColor(CREAM);
-			drawTruncated(g, b.display, 118, y + 25, 380);
+			drawTruncated(g, b.shortName(), 118, y + 25, 380);
 			g.setFont(bold(17f));
 			g.setColor(valColor(gp));
 			drawRight(g, fmtGp(gp), 660, y + 25);
@@ -493,7 +496,7 @@ class ShareCardRenderer
 			}
 			g.setFont(bold(26f));
 			g.setColor(CREAM);
-			drawTruncated(g, highestKcBoss.display, 874, 462, 270);
+			drawTruncated(g, highestKcBoss.shortName(), 874, 462, 270);
 			g.setFont(bold(40f));
 			g.setColor(GOLD);
 			g.drawString(String.format("%,d", highestKc), 874, 512);
@@ -507,7 +510,7 @@ class ShareCardRenderer
 		return img;
 	}
 
-	private static Highlight highlight(BossRegistry.Boss b, String item, double ratio, int detail, boolean ongoing)
+	private static Highlight highlight(BossRegistry.Boss b, String item, double ratio, int detail, boolean ongoing, double pct)
 	{
 		Highlight h = new Highlight();
 		h.boss = b;
@@ -515,7 +518,19 @@ class ShareCardRenderer
 		h.ratio = ratio;
 		h.detail = detail;
 		h.ongoing = ongoing;
+		h.pct = pct;
 		return h;
+	}
+
+	/** % of players who would have hit a 1/oneInX drop at least once within n attempts. */
+	private static double pctByNow(double oneInX, int n)
+	{
+		if (oneInX <= 0 || n <= 0)
+		{
+			return 0;
+		}
+		// cap so extreme streaks never display a literal "100.0%"
+		return Math.min(99.9, 100.0 * (1.0 - Math.pow(1.0 - 1.0 / oneInX, n)));
 	}
 
 	private void addHighlightIcon(Set<Integer> ids, Highlight h)
@@ -559,7 +574,7 @@ class ShareCardRenderer
 		drawTruncated(g, hl.item, x + 72, y + 62, w - 90);
 		g.setFont(plain(14f));
 		g.setColor(GREY);
-		drawTruncated(g, hl.boss.display, x + 72, y + 82, w - 90);
+		drawTruncated(g, hl.boss.shortName(), x + 72, y + 82, w - 90);
 		g.setFont(bold(18f));
 		g.setColor(accent);
 		drawTruncated(g, detail, x + 18, y + 120, w - 36);
