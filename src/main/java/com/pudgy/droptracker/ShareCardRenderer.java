@@ -353,18 +353,31 @@ class ShareCardRenderer
 					continue;
 				}
 				// current dry streak on this unique — also counts toward all-time,
-				// so all-time driest can never show less dry than the current streak
+				// so all-time driest can never show less dry than the current streak.
+				// Items owned only via collection-log import have unknown obtain KCs:
+				// count from the import-time KC if recorded, otherwise skip them —
+				// an item the player already owns must never headline "driest".
 				if (kc > 0)
 				{
-					int since = kc - plugin.getLastDropKc(b, d.name);
-					double ratio = since / d.oneInX;
-					if (since > 0 && (curDry == null || ratio > curDry.ratio))
+					int baseline = plugin.getLastDropKc(b, d.name);
+					int unknown = plugin.getUnknownCount(b, d.name);
+					if (unknown > 0 && gotKcs.isEmpty())
 					{
-						curDry = highlight(b, d.name, ratio, since, true);
+						int ib = plugin.importBaselineKc(b, d.name);
+						baseline = ib < 0 ? -1 : Math.max(baseline, ib);
 					}
-					if (since > 0 && (allDry == null || ratio > allDry.ratio))
+					if (baseline >= 0)
 					{
-						allDry = highlight(b, d.name, ratio, since, true);
+						int since = kc - baseline;
+						double ratio = since / d.oneInX;
+						if (since > 0 && (curDry == null || ratio > curDry.ratio))
+						{
+							curDry = highlight(b, d.name, ratio, since, true);
+						}
+						if (since > 0 && (allDry == null || ratio > allDry.ratio))
+						{
+							allDry = highlight(b, d.name, ratio, since, true);
+						}
 					}
 				}
 				// historical gaps between hits
