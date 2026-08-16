@@ -210,6 +210,12 @@ public final class CardPreview
 		}
 
 		@Override
+		int getSeenKc(BossRegistry.Boss b)
+		{
+			return getKc(b) / 2;
+		}
+
+		@Override
 		List<ItemTotal> getTotals(BossRegistry.Boss b)
 		{
 			List<ItemTotal> l = totals.getOrDefault(b.display.toLowerCase(), new ArrayList<>());
