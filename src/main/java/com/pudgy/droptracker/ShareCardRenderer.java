@@ -162,14 +162,14 @@ class ShareCardRenderer
 		}
 
 		// notable drops grid
-		g.setFont(bold(19f));
+		g.setFont(bold(21f));
 		g.setColor(GOLD);
-		g.drawString("NOTABLE DROPS", 40, 280);
+		g.drawString("NOTABLE DROPS", 40, 264);
 		int cols = 3;
 		int cellW = 296;
-		int cellH = 58;
-		int gridY = 292;
-		int maxRows = 4;
+		int cellH = 64;
+		int gridY = 276;
+		int maxRows = 3;
 		int maxCells = cols * maxRows;
 		int shown = Math.min(notables.size(), notables.size() > maxCells ? maxCells - 1 : maxCells);
 		for (int i = 0; i < shown; i++)
@@ -190,16 +190,16 @@ class ShareCardRenderer
 
 		// all-loot strip — flows up under the uniques grid so short cards have no dead band
 		int gridRows = (int) Math.ceil((shown + (notables.size() > shown ? 1 : 0)) / (double) cols);
-		int titleY = Math.max(384, gridY + gridRows * cellH + 30);
-		g.setFont(bold(19f));
+		int titleY = Math.max(376, gridY + gridRows * cellH + 30);
+		g.setFont(bold(21f));
 		g.setColor(GOLD);
 		g.drawString("ALL LOOT RECEIVED", 40, titleY);
-		g.setFont(plain(15f));
+		g.setFont(plain(16f));
 		g.setColor(GREY);
-		g.drawString("sorted by value", 248, titleY);
+		g.drawString("sorted by value", 268, titleY);
 		int itemsY = titleY + 14;
-		int cell = 52;
-		int perRow = (W - 80) / cell; // 21
+		int cell = 56;
+		int perRow = (W - 80) / cell; // 20
 		int lootRows = Math.max(1, Math.min(2, (624 - itemsY) / cell));
 		int maxItems = perRow * lootRows;
 		int lshown = Math.min(totals.size(), totals.size() > maxItems ? maxItems - 1 : maxItems);
@@ -245,12 +245,12 @@ class ShareCardRenderer
 		BufferedImage sp = sprites.get(plugin.iconId(d.name));
 		if (sp != null)
 		{
-			drawFitted(g, sp, x, y + 6, 44, 44);
+			drawFitted(g, sp, x, y + 8, 48, 48);
 		}
-		int tx = x + 54;
-		g.setFont(bold(19f));
+		int tx = x + 58;
+		g.setFont(bold(22f));
 		g.setColor(d.pet ? PET_GOLD : CREAM);
-		drawTruncated(g, d.name, tx, y + 22, w - 54);
+		drawTruncated(g, d.name, tx, y + 26, w - 58);
 
 		List<Integer> gotKcs = plugin.getUniqueKcs(b, d.name);
 		int unknown = plugin.showUnknownKc() ? plugin.getUnknownCount(b, d.name) : 0;
@@ -300,12 +300,12 @@ class ShareCardRenderer
 			status = "—";
 			sc = GREY;
 		}
-		g.setFont(plain(15f));
+		g.setFont(plain(17f));
 		g.setColor(GREY);
 		String rate = "1/" + fmtRate(d.oneInX) + "  ";
-		g.drawString(rate, tx, y + 43);
+		g.drawString(rate, tx, y + 49);
 		g.setColor(sc);
-		drawTruncated(g, status, tx + g.getFontMetrics().stringWidth(rate), y + 43, w - 54 - g.getFontMetrics().stringWidth(rate));
+		drawTruncated(g, status, tx + g.getFontMetrics().stringWidth(rate), y + 49, w - 58 - g.getFontMetrics().stringWidth(rate));
 	}
 
 	// =========================================================================
