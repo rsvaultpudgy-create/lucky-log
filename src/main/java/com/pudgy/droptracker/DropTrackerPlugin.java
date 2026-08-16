@@ -230,6 +230,14 @@ public class DropTrackerPlugin extends Plugin
 			return;
 		}
 
+		// Doom fires one loot event per completed delve level, with the level as
+		// metadata — credit that floor's unique odds before recording any drops,
+		// so a unique received this floor snapshots after the roll it came from.
+		if ("Doom of Mokhaiotl".equals(boss.display) && event.getMetadata() instanceof Integer)
+		{
+			recordDoomDelve((Integer) event.getMetadata());
+		}
+
 		rememberName();
 		int kc = getKc(boss) + 1;
 		setKc(boss, kc);
@@ -796,13 +804,17 @@ public class DropTrackerPlugin extends Plugin
 	}
 
 	// ===== Doom of Mokhaiotl: per-item unique rate by delve level =====
-	// index 0 = delve 2 ... index 7 = delve 9+ (deeper delves clamp to the last entry)
+	// index 0 = delve 2 ... index 7 = delve 9+ (deeper delves clamp to the last entry).
+	// The loot tracker fires one LootReceived per completed delve level with the level
+	// as metadata — each floor's bank-or-continue loot roll is credited as it happens.
 	private static final double[] DOOM_ITEM_RATE = {2500, 2000, 1350, 810, 765, 720, 630, 540};
 	private static final double[] DOOM_DOM_RATE = {0, 0, 0, 0, 1000, 750, 500, 250};
-	private static final Pattern DELVE_LEVEL_MSG = Pattern.compile("(?i)delve level:? ?(\\d+)");
 
 	// ===== Fortis Colosseum: overall unique chance per wave (waves 4..12) =====
+	// Each wave's loot rolls when the wave is completed ("Wave N completed!" message),
+	// whether the player banks or continues — so credit odds wave by wave.
 	private static final double[] COLO_OVERALL = {124, 110, 96, 82, 68, 54, 40, 26, 12};
+	private static final Pattern COLO_WAVE_MSG = Pattern.compile("^Wave (\\d+) completed! Wave duration");
 
 	private void recordDoomDelve(int level)
 	{
@@ -835,39 +847,33 @@ public class DropTrackerPlugin extends Plugin
 		}
 	}
 
-	private void recordColosseumRun()
+	private void recordColosseumWave(int wave)
 	{
 		BossRegistry.Boss b = BossRegistry.byLootName("Fortis Colosseum");
-		if (b == null)
+		if (b == null || wave < 1)
 		{
 			return;
 		}
-		double echo = 0;
-		double sunfire = 0;
-		double ralos = 0;
-		for (int i = 0; i < COLO_OVERALL.length; i++)
+		double total = 0;
+		if (wave >= 4)
 		{
-			int wave = i + 4;
-			double p = 1.0 / COLO_OVERALL[i];
-			if (wave <= 6)
+			double p = 1.0 / COLO_OVERALL[Math.min(wave, 12) - 4];
+			double echo = wave <= 6 ? p * 0.4 : p * 6.0 / 16.0;
+			double sunfire = wave <= 6 ? p * 0.6 : p * 9.0 / 16.0;
+			double ralos = wave <= 6 ? 0 : p / 16.0;
+			total += addEsum(b, "Echo crystal", echo);
+			total += addEsum(b, "Sunfire fanatic helm", sunfire / 3.0);
+			total += addEsum(b, "Sunfire fanatic cuirass", sunfire / 3.0);
+			total += addEsum(b, "Sunfire fanatic chausses", sunfire / 3.0);
+			if (ralos > 0)
 			{
-				echo += p * 0.4;
-				sunfire += p * 0.6;
-			}
-			else
-			{
-				echo += p * 6.0 / 16.0;
-				sunfire += p * 9.0 / 16.0;
-				ralos += p / 16.0;
+				total += addEsum(b, "Tonalztics of ralos", ralos);
 			}
 		}
-		double total = 0;
-		total += addEsum(b, "Echo crystal", echo);
-		total += addEsum(b, "Sunfire fanatic helm", sunfire / 3.0);
-		total += addEsum(b, "Sunfire fanatic cuirass", sunfire / 3.0);
-		total += addEsum(b, "Sunfire fanatic chausses", sunfire / 3.0);
-		total += addEsum(b, "Tonalztics of ralos", ralos);
-		addEsum(b, "Smol heredit", 1.0 / 200.0);
+		if (wave >= 12)
+		{
+			addEsum(b, "Smol heredit", 1.0 / 200.0);
+		}
 		configManager.setConfiguration(GROUP, "rsum_" + key(b), getRaidSum(b) + total);
 		configManager.setConfiguration(GROUP, "rcnt_" + key(b), getRaidCount(b) + 1);
 		if (panel != null)
@@ -906,15 +912,10 @@ public class DropTrackerPlugin extends Plugin
 		String msg = Text.removeTags(event.getMessage());
 		try
 		{
-			Matcher delve = DELVE_LEVEL_MSG.matcher(msg);
-			if ((msg.startsWith("Delve level") || msg.contains("elve level")) && delve.find())
+			Matcher wave = COLO_WAVE_MSG.matcher(msg);
+			if (wave.find())
 			{
-				recordDoomDelve(Integer.parseInt(delve.group(1)));
-				return;
-			}
-			if (msg.startsWith("Colosseum duration"))
-			{
-				recordColosseumRun();
+				recordColosseumWave(Integer.parseInt(wave.group(1)));
 				return;
 			}
 			if (msg.startsWith("Congratulations - your raid is complete"))
