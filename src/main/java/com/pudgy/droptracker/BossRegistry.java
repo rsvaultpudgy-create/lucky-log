@@ -3541,9 +3541,9 @@ public final class BossRegistry
 		add(new Boss("Tormented Demon",
 			new Drop("Tormented synapse", 500),
 			new Drop("Burning claw", 501),
-			new Drop("Smouldering gland", 25),
-			new Drop("Smouldering pile of flesh", 25),
-			new Drop("Smouldering heart", 125),
+			Drop.common("Smouldering gland", 25),
+			Drop.common("Smouldering pile of flesh", 25),
+			Drop.common("Smouldering heart", 125),
 			Drop.common("Infernal ashes", 1),
 			Drop.common("Magic shortbow (u)", 8.8),
 			Drop.common("Guthixian temple teleport", 12),
@@ -5976,6 +5976,14 @@ public final class BossRegistry
 		alias("Reward casket (hard)", "Clue Scroll (Hard)");
 		alias("Reward casket (elite)", "Clue Scroll (Elite)");
 		alias("Reward casket (master)", "Clue Scroll (Master)");
+		// collection log page titles for clue tiers (incl. the (Rare) sub-pages)
+		alias("Medium Treasure Trails", "Clue Scroll (Medium)");
+		alias("Hard Treasure Trails", "Clue Scroll (Hard)");
+		alias("Hard Treasure Trails (Rare)", "Clue Scroll (Hard)");
+		alias("Elite Treasure Trails", "Clue Scroll (Elite)");
+		alias("Elite Treasure Trails (Rare)", "Clue Scroll (Elite)");
+		alias("Master Treasure Trails", "Clue Scroll (Master)");
+		alias("Master Treasure Trails (Rare)", "Clue Scroll (Master)");
 	}
 
 }
