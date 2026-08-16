@@ -162,13 +162,13 @@ class ShareCardRenderer
 		}
 
 		// notable drops grid
-		g.setFont(bold(17f));
+		g.setFont(bold(19f));
 		g.setColor(GOLD);
-		g.drawString("NOTABLE DROPS", 40, 286);
+		g.drawString("NOTABLE DROPS", 40, 280);
 		int cols = 3;
 		int cellW = 296;
-		int cellH = 50;
-		int gridY = 300;
+		int cellH = 58;
+		int gridY = 292;
 		int maxRows = 4;
 		int maxCells = cols * maxRows;
 		int shown = Math.min(notables.size(), notables.size() > maxCells ? maxCells - 1 : maxCells);
@@ -183,24 +183,24 @@ class ShareCardRenderer
 		{
 			int cx = 40 + (shown % cols) * cellW;
 			int cy = gridY + (shown / cols) * cellH;
-			g.setFont(plain(15f));
+			g.setFont(plain(17f));
 			g.setColor(GREY);
-			g.drawString("+" + (notables.size() - shown) + " more uniques", cx + 6, cy + 30);
+			g.drawString("+" + (notables.size() - shown) + " more uniques", cx + 6, cy + 34);
 		}
 
 		// all-loot strip — flows up under the uniques grid so short cards have no dead band
 		int gridRows = (int) Math.ceil((shown + (notables.size() > shown ? 1 : 0)) / (double) cols);
-		int titleY = Math.max(392, gridY + gridRows * cellH + 30);
-		g.setFont(bold(17f));
+		int titleY = Math.max(384, gridY + gridRows * cellH + 30);
+		g.setFont(bold(19f));
 		g.setColor(GOLD);
 		g.drawString("ALL LOOT RECEIVED", 40, titleY);
-		g.setFont(plain(13f));
+		g.setFont(plain(15f));
 		g.setColor(GREY);
-		g.drawString("sorted by value", 218, titleY);
-		int itemsY = titleY + 12;
-		int cell = 44;
-		int perRow = (W - 80) / cell; // 25
-		int lootRows = Math.max(1, Math.min(2, (620 - itemsY) / cell));
+		g.drawString("sorted by value", 248, titleY);
+		int itemsY = titleY + 14;
+		int cell = 52;
+		int perRow = (W - 80) / cell; // 21
+		int lootRows = Math.max(1, Math.min(2, (624 - itemsY) / cell));
 		int maxItems = perRow * lootRows;
 		int lshown = Math.min(totals.size(), totals.size() > maxItems ? maxItems - 1 : maxItems);
 		for (int i = 0; i < lshown; i++)
@@ -223,15 +223,15 @@ class ShareCardRenderer
 		{
 			int cx = 40 + (lshown % perRow) * cell;
 			int cy = itemsY + (lshown / perRow) * cell;
-			g.setFont(bold(14f));
+			g.setFont(bold(16f));
 			g.setColor(GREY);
-			g.drawString("+" + (totals.size() - lshown), cx + 6, cy + 26);
+			g.drawString("+" + (totals.size() - lshown), cx + 6, cy + 30);
 		}
 		if (totals.isEmpty())
 		{
-			g.setFont(plain(15f));
+			g.setFont(plain(17f));
 			g.setColor(GREY);
-			g.drawString("No loot tracked yet — kills logged with Lucky Log will fill this in.", 40, itemsY + 24);
+			g.drawString("No loot tracked yet — kills logged with Lucky Log will fill this in.", 40, itemsY + 28);
 		}
 
 		paintFooter(g);
@@ -245,12 +245,12 @@ class ShareCardRenderer
 		BufferedImage sp = sprites.get(plugin.iconId(d.name));
 		if (sp != null)
 		{
-			drawFitted(g, sp, x, y + 6, 34, 34);
+			drawFitted(g, sp, x, y + 6, 44, 44);
 		}
-		int tx = x + 42;
-		g.setFont(bold(16f));
+		int tx = x + 54;
+		g.setFont(bold(19f));
 		g.setColor(d.pet ? PET_GOLD : CREAM);
-		drawTruncated(g, d.name, tx, y + 18, w - 42);
+		drawTruncated(g, d.name, tx, y + 22, w - 54);
 
 		List<Integer> gotKcs = plugin.getUniqueKcs(b, d.name);
 		int unknown = plugin.showUnknownKc() ? plugin.getUnknownCount(b, d.name) : 0;
@@ -281,8 +281,17 @@ class ShareCardRenderer
 		}
 		else if (kc > 0 && d.oneInX > 0)
 		{
-			int since = kc - plugin.getLastDropKc(b, d.name);
-			double p = 1.0 - Math.pow(1.0 - 1.0 / d.oneInX, Math.max(0, since));
+			Double smart = plugin.smartChanceHave(b, d.name);
+			double p;
+			if (smart != null)
+			{
+				p = smart;
+			}
+			else
+			{
+				int since = kc - plugin.getLastDropKc(b, d.name);
+				p = 1.0 - Math.pow(1.0 - 1.0 / d.oneInX, Math.max(0, since));
+			}
 			status = String.format("%.1f%% would have it by now", p * 100);
 			sc = fadeWhiteToGreen(p);
 		}
@@ -291,12 +300,12 @@ class ShareCardRenderer
 			status = "—";
 			sc = GREY;
 		}
-		g.setFont(plain(13f));
+		g.setFont(plain(15f));
 		g.setColor(GREY);
 		String rate = "1/" + fmtRate(d.oneInX) + "  ";
-		g.drawString(rate, tx, y + 36);
+		g.drawString(rate, tx, y + 43);
 		g.setColor(sc);
-		drawTruncated(g, status, tx + g.getFontMetrics().stringWidth(rate), y + 36, w - 42 - g.getFontMetrics().stringWidth(rate));
+		drawTruncated(g, status, tx + g.getFontMetrics().stringWidth(rate), y + 43, w - 54 - g.getFontMetrics().stringWidth(rate));
 	}
 
 	// =========================================================================

@@ -431,11 +431,23 @@ class DropTrackerPanel extends PluginPanel
 		for (BossRegistry.Boss b : BossRegistry.all())
 		{
 			String dl = b.shortName().toLowerCase();
+			boolean aliasHit = false;
+			if (!s.isEmpty() && !dl.contains(s))
+			{
+				for (String alias : BossRegistry.searchAliases(b))
+				{
+					if (alias.contains(s))
+					{
+						aliasHit = true;
+						break;
+					}
+				}
+			}
 			if (s.isEmpty() || dl.startsWith(s))
 			{
 				starts.add(b.shortName());
 			}
-			else if (dl.contains(s))
+			else if (dl.contains(s) || aliasHit)
 			{
 				contains.add(b.shortName());
 			}

@@ -249,6 +249,12 @@ public final class CardPreview
 		}
 
 		@Override
+		Double smartChanceHave(BossRegistry.Boss b, String goal)
+		{
+			return null;
+		}
+
+		@Override
 		String cardPlayerName()
 		{
 			return "Pudgy";

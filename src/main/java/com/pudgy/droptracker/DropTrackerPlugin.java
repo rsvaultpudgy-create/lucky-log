@@ -795,6 +795,106 @@ public class DropTrackerPlugin extends Plugin
 		RAID_WEIGHTS.put("tombs of amascut", toa);
 	}
 
+	// ===== Doom of Mokhaiotl: per-item unique rate by delve level =====
+	// index 0 = delve 2 ... index 7 = delve 9+ (deeper delves clamp to the last entry)
+	private static final double[] DOOM_ITEM_RATE = {2500, 2000, 1350, 810, 765, 720, 630, 540};
+	private static final double[] DOOM_DOM_RATE = {0, 0, 0, 0, 1000, 750, 500, 250};
+	private static final Pattern DELVE_LEVEL_MSG = Pattern.compile("(?i)delve level:? ?(\\d+)");
+
+	// ===== Fortis Colosseum: overall unique chance per wave (waves 4..12) =====
+	private static final double[] COLO_OVERALL = {124, 110, 96, 82, 68, 54, 40, 26, 12};
+
+	private void recordDoomDelve(int level)
+	{
+		BossRegistry.Boss b = BossRegistry.byLootName("Doom of Mokhaiotl");
+		if (b == null || level < 2)
+		{
+			return;
+		}
+		int idx = Math.min(level, 9) - 2;
+		double p = 1.0 / DOOM_ITEM_RATE[idx];
+		double total = 0;
+		total += addEsum(b, "Mokhaiotl cloth", p);
+		if (level >= 3)
+		{
+			total += addEsum(b, "Eye of ayak (uncharged)", p);
+		}
+		if (level >= 4)
+		{
+			total += addEsum(b, "Avernic treads", p);
+		}
+		if (DOOM_DOM_RATE[idx] > 0)
+		{
+			total += addEsum(b, "Dom", 1.0 / DOOM_DOM_RATE[idx]);
+		}
+		configManager.setConfiguration(GROUP, "rsum_" + key(b), getRaidSum(b) + total);
+		configManager.setConfiguration(GROUP, "rcnt_" + key(b), getRaidCount(b) + 1);
+		if (panel != null)
+		{
+			SwingUtilities.invokeLater(panel::rerender);
+		}
+	}
+
+	private void recordColosseumRun()
+	{
+		BossRegistry.Boss b = BossRegistry.byLootName("Fortis Colosseum");
+		if (b == null)
+		{
+			return;
+		}
+		double echo = 0;
+		double sunfire = 0;
+		double ralos = 0;
+		for (int i = 0; i < COLO_OVERALL.length; i++)
+		{
+			int wave = i + 4;
+			double p = 1.0 / COLO_OVERALL[i];
+			if (wave <= 6)
+			{
+				echo += p * 0.4;
+				sunfire += p * 0.6;
+			}
+			else
+			{
+				echo += p * 6.0 / 16.0;
+				sunfire += p * 9.0 / 16.0;
+				ralos += p / 16.0;
+			}
+		}
+		double total = 0;
+		total += addEsum(b, "Echo crystal", echo);
+		total += addEsum(b, "Sunfire fanatic helm", sunfire / 3.0);
+		total += addEsum(b, "Sunfire fanatic cuirass", sunfire / 3.0);
+		total += addEsum(b, "Sunfire fanatic chausses", sunfire / 3.0);
+		total += addEsum(b, "Tonalztics of ralos", ralos);
+		addEsum(b, "Smol heredit", 1.0 / 200.0);
+		configManager.setConfiguration(GROUP, "rsum_" + key(b), getRaidSum(b) + total);
+		configManager.setConfiguration(GROUP, "rcnt_" + key(b), getRaidCount(b) + 1);
+		if (panel != null)
+		{
+			SwingUtilities.invokeLater(panel::rerender);
+		}
+	}
+
+	// per-item expected-unique sums, for bosses whose rates change with depth/wave
+	double getEsum(BossRegistry.Boss b, String item)
+	{
+		Double v = configManager.getConfiguration(GROUP, "esum_" + key(b) + "_" + dkey(item), Double.class);
+		return v == null ? 0.0 : v;
+	}
+
+	private double addEsum(BossRegistry.Boss b, String item, double p)
+	{
+		configManager.setConfiguration(GROUP, "esum_" + key(b) + "_" + dkey(item), getEsum(b, item) + p);
+		return p;
+	}
+
+	private double getEsnap(BossRegistry.Boss b, String item)
+	{
+		Double v = configManager.getConfiguration(GROUP, "esnap_" + key(b) + "_" + dkey(item), Double.class);
+		return v == null ? 0.0 : v;
+	}
+
 	@Subscribe
 	public void onChatMessage(ChatMessage event)
 	{
@@ -806,6 +906,17 @@ public class DropTrackerPlugin extends Plugin
 		String msg = Text.removeTags(event.getMessage());
 		try
 		{
+			Matcher delve = DELVE_LEVEL_MSG.matcher(msg);
+			if ((msg.startsWith("Delve level") || msg.contains("elve level")) && delve.find())
+			{
+				recordDoomDelve(Integer.parseInt(delve.group(1)));
+				return;
+			}
+			if (msg.startsWith("Colosseum duration"))
+			{
+				recordColosseumRun();
+				return;
+			}
 			if (msg.startsWith("Congratulations - your raid is complete"))
 			{
 				int pts = client.getVarpValue(4609); // RAIDS_PLAYERSCORE (personal CoX points)
@@ -897,12 +1008,28 @@ public class DropTrackerPlugin extends Plugin
 		{
 			configManager.setConfiguration(GROUP, "rsnap_" + key(b) + "_" + dkey(item), getRaidSum(b));
 		}
+		double es = getEsum(b, item);
+		if (es > 0)
+		{
+			configManager.setConfiguration(GROUP, "esnap_" + key(b) + "_" + dkey(item), es);
+		}
 	}
 
 	Double smartChanceHave(BossRegistry.Boss b, String goal)
 	{
+		if (goal == null)
+		{
+			return null;
+		}
+		// depth/wave-aware bosses (Doom, Colosseum): per-item expected sums
+		double es = getEsum(b, goal);
+		if (es > 0)
+		{
+			double since = Math.max(0.0, es - getEsnap(b, goal));
+			return 1.0 - Math.exp(-since);
+		}
 		Map<String, Integer> w = RAID_WEIGHTS.get(b.display.toLowerCase());
-		if (w == null || goal == null || getRaidCount(b) <= 0)
+		if (w == null || getRaidCount(b) <= 0)
 		{
 			return null;
 		}
