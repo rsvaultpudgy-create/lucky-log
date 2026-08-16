@@ -328,7 +328,7 @@ class ShareCardRenderer
 		for (BossRegistry.Boss b : all)
 		{
 			int kc = plugin.getKc(b);
-			totalKills += kc;
+			totalKills += plugin.getSeenKc(b);
 			if (kc > highestKc)
 			{
 				highestKc = kc;
