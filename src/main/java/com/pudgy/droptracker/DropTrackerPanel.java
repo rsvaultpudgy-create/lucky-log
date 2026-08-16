@@ -512,7 +512,7 @@ class DropTrackerPanel extends PluginPanel
 		if (avg != null)
 		{
 			h.append("<br><font color='#87cefa'>Your avg purple: ~1/").append(fmt(avg))
-				.append(" over ").append(plugin.getRaidCount(b)).append(" raids</font>");
+				.append(" over ").append(plugin.getRaidCount(b)).append(" completions</font>");
 		}
 		if (goal != null)
 		{
