@@ -144,6 +144,21 @@ public final class BossRegistry
 		return l;
 	}
 
+	/** Alternate names (loot aliases) pointing at this boss, e.g. "Sol Heredit" for Fortis Colosseum. */
+	public static List<String> searchAliases(Boss b)
+	{
+		List<String> out = new ArrayList<>();
+		String target = b.display.toLowerCase();
+		for (Map.Entry<String, String> e : ALIASES.entrySet())
+		{
+			if (e.getValue().equals(target))
+			{
+				out.add(e.getKey());
+			}
+		}
+		return out;
+	}
+
 	static
 	{
 		reg0();
@@ -5982,6 +5997,19 @@ public final class BossRegistry
 
 	private static void reg13()
 	{
+		add(new Boss("Mad Angel",
+			new Drop("Hallowfell", 128),
+			new Drop("Jar of light", 1000),
+			new Drop("Aggy", 2000, true, "Pet"),
+			Drop.common("Ardeaglais teleport", 25),
+			Drop.common("Rune kiteshield", 12.5),
+			Drop.common("Rune full helm", 12.5),
+			Drop.common("Dragon med helm", 75),
+			Drop.common("Dragon battleaxe", 75),
+			Drop.common("Steel cannonball", 9.4),
+			Drop.common("Law rune", 12.5)
+		));
+
 		alias("Sol Heredit", "Fortis Colosseum");
 		alias("Reward casket (medium)", "Clue Scroll (Medium)");
 		alias("Reward casket (hard)", "Clue Scroll (Hard)");
