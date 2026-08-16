@@ -233,7 +233,6 @@ public class DropTrackerPlugin extends Plugin
 		rememberName();
 		int kc = getKc(boss) + 1;
 		setKc(boss, kc);
-		configManager.setConfiguration(GROUP, "skc_" + key(boss), getSeenKc(boss) + 1);
 
 		List<LootEntry.Item> items = new ArrayList<>();
 		Map<Integer, ItemTotal> totals = getTotalsMap(boss);
@@ -571,13 +570,6 @@ public class DropTrackerPlugin extends Plugin
 		configManager.setConfiguration(GROUP, "kc_" + key(b), Math.max(0, v));
 	}
 
-	/** Kills Lucky Log has actually witnessed (loot events recorded), as opposed to known KC. */
-	int getSeenKc(BossRegistry.Boss b)
-	{
-		Integer v = configManager.getConfiguration(GROUP, "skc_" + key(b), Integer.class);
-		return v == null ? 0 : v;
-	}
-
 	// --- goal + dry ---
 	String getGoal(BossRegistry.Boss b)
 	{
@@ -673,7 +665,6 @@ public class DropTrackerPlugin extends Plugin
 	{
 		String k = key(b);
 		configManager.unsetConfiguration(GROUP, "kc_" + k);
-		configManager.unsetConfiguration(GROUP, "skc_" + k);
 		configManager.unsetConfiguration(GROUP, "hist_" + k);
 		configManager.unsetConfiguration(GROUP, "totals_" + k);
 		configManager.unsetConfiguration(GROUP, "rsum_" + k);
