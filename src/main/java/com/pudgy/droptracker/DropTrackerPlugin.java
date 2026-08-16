@@ -230,6 +230,7 @@ public class DropTrackerPlugin extends Plugin
 			return;
 		}
 
+		rememberName();
 		int kc = getKc(boss) + 1;
 		setKc(boss, kc);
 
@@ -1023,10 +1024,7 @@ public class DropTrackerPlugin extends Plugin
 		{
 			try
 			{
-				if (client.getLocalPlayer() != null && client.getLocalPlayer().getName() != null)
-				{
-					cardPlayerName = client.getLocalPlayer().getName();
-				}
+				rememberName();
 				if (selected != null)
 				{
 					for (BossRegistry.Drop d : selected.notableDrops())
@@ -1052,6 +1050,34 @@ public class DropTrackerPlugin extends Plugin
 	String cardPlayerName()
 	{
 		return cardPlayerName == null ? "" : cardPlayerName;
+	}
+
+	/**
+	 * Capture the logged-in display name when available, persisting the last seen one so
+	 * cards still carry a name if rendered from the login screen or a fresh session.
+	 * Client-thread only.
+	 */
+	private void rememberName()
+	{
+		try
+		{
+			if (client.getLocalPlayer() != null && client.getLocalPlayer().getName() != null)
+			{
+				String name = client.getLocalPlayer().getName();
+				if (!name.equals(cardPlayerName))
+				{
+					cardPlayerName = name;
+					configManager.setConfiguration(GROUP, "last_name", name);
+				}
+			}
+			else if (cardPlayerName == null)
+			{
+				cardPlayerName = configManager.getConfiguration(GROUP, "last_name", String.class);
+			}
+		}
+		catch (Exception ignored)
+		{
+		}
 	}
 
 	private boolean resolveIcon(String name)

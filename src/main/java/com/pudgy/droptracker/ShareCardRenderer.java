@@ -36,6 +36,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -100,14 +101,16 @@ class ShareCardRenderer
 				ids.add(id);
 			}
 		}
+		Map<Integer, Integer> lootQty = new LinkedHashMap<>();
 		for (ItemTotal t : totals)
 		{
 			if (t.id > 0)
 			{
-				ids.add(t.id);
+				lootQty.put(t.id, (int) Math.min(t.total, Integer.MAX_VALUE));
 			}
 		}
 		Map<Integer, BufferedImage> sprites = loadSprites(ids);
+		Map<Integer, BufferedImage> lootSprites = loadSpritesWithQty(lootQty);
 
 		BufferedImage img = new BufferedImage(W, H, BufferedImage.TYPE_INT_RGB);
 		Graphics2D g = img.createGraphics();
@@ -204,7 +207,7 @@ class ShareCardRenderer
 			ItemTotal t = totals.get(i);
 			int cx = 40 + (i % perRow) * cell;
 			int cy = itemsY + (i / perRow) * cell;
-			BufferedImage sp = sprites.get(t.id);
+			BufferedImage sp = lootSprites.get(t.id);
 			if (sp != null)
 			{
 				drawFitted(g, sp, cx + 2, cy + 2, cell - 6, cell - 6);
@@ -640,17 +643,32 @@ class ShareCardRenderer
 	 */
 	Map<Integer, BufferedImage> loadSprites(Set<Integer> ids)
 	{
-		Map<Integer, BufferedImage> out = new HashMap<>();
-		CountDownLatch latch = new CountDownLatch(ids.size());
+		Map<Integer, Integer> qty = new LinkedHashMap<>();
 		for (int id : ids)
+		{
+			qty.put(id, 1);
+		}
+		return loadSpritesWithQty(qty);
+	}
+
+	/**
+	 * Same as {@link #loadSprites}, but renders each sprite as an in-game style stack:
+	 * the stack-size art variant plus the yellow quantity overlay when qty > 1.
+	 */
+	Map<Integer, BufferedImage> loadSpritesWithQty(Map<Integer, Integer> idQty)
+	{
+		Map<Integer, BufferedImage> out = new HashMap<>();
+		CountDownLatch latch = new CountDownLatch(idQty.size());
+		for (Map.Entry<Integer, Integer> e : idQty.entrySet())
 		{
 			try
 			{
-				AsyncBufferedImage a = itemManager.getImage(id, 1, false);
-				out.put(id, a);
+				int qty = Math.max(1, e.getValue());
+				AsyncBufferedImage a = itemManager.getImage(e.getKey(), qty, qty > 1);
+				out.put(e.getKey(), a);
 				a.onLoaded(latch::countDown);
 			}
-			catch (Exception e)
+			catch (Exception ex)
 			{
 				latch.countDown();
 			}

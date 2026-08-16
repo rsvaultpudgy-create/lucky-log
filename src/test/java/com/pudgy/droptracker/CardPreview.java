@@ -48,6 +48,39 @@ public final class CardPreview
 			}
 			return m;
 		}
+
+		@Override
+		Map<Integer, BufferedImage> loadSpritesWithQty(Map<Integer, Integer> idQty)
+		{
+			Map<Integer, BufferedImage> m = new HashMap<>();
+			for (Map.Entry<Integer, Integer> e : idQty.entrySet())
+			{
+				BufferedImage img = fakeSprite(e.getKey());
+				if (e.getValue() > 1)
+				{
+					Graphics2D g = img.createGraphics();
+					g.setColor(new Color(0xFF, 0xFF, 0x00));
+					g.setFont(g.getFont().deriveFont(10f));
+					g.drawString(qtyText(e.getValue()), 1, 9);
+					g.dispose();
+				}
+				m.put(e.getKey(), img);
+			}
+			return m;
+		}
+
+		private static String qtyText(long q)
+		{
+			if (q >= 10000000)
+			{
+				return (q / 1000000) + "M";
+			}
+			if (q >= 100000)
+			{
+				return (q / 1000) + "K";
+			}
+			return String.valueOf(q);
+		}
 	}
 
 	private static BufferedImage fakeSprite(int seed)
