@@ -644,7 +644,21 @@ public class DropTrackerPlugin extends Plugin
 	void importObtained(BossRegistry.Boss b, String item, int collectionLogTotal)
 	{
 		int tracked = getUniqueKcs(b, item).size();
-		setUnknownCount(b, item, Math.max(0, collectionLogTotal - tracked));
+		int unknown = Math.max(0, collectionLogTotal - tracked);
+		setUnknownCount(b, item, unknown);
+		// Remember the KC at import time: pre-tracking obtains have unknown KCs, so any
+		// dry-streak math for this item can only honestly start counting from here.
+		if (unknown > 0)
+		{
+			configManager.setConfiguration(GROUP, "ibase_" + key(b) + "_" + dkey(item), getKc(b));
+		}
+	}
+
+	/** KC at the time this item's pre-tracking obtains were imported, or -1 if never recorded. */
+	int importBaselineKc(BossRegistry.Boss b, String item)
+	{
+		Integer v = configManager.getConfiguration(GROUP, "ibase_" + key(b) + "_" + dkey(item), Integer.class);
+		return v == null ? -1 : v;
 	}
 
 	void resetBoss(BossRegistry.Boss b)
@@ -660,6 +674,7 @@ public class DropTrackerPlugin extends Plugin
 			configManager.unsetConfiguration(GROUP, "ukc_" + k + "_" + dkey(d.name));
 			configManager.unsetConfiguration(GROUP, "unk_" + k + "_" + dkey(d.name));
 			configManager.unsetConfiguration(GROUP, "rsnap_" + k + "_" + dkey(d.name));
+			configManager.unsetConfiguration(GROUP, "ibase_" + k + "_" + dkey(d.name));
 		}
 	}
 
