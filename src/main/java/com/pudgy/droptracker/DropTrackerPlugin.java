@@ -422,6 +422,7 @@ public class DropTrackerPlugin extends Plugin
 		}
 		boolean allWanted = tabName.equalsIgnoreCase("Bosses") || tabName.equalsIgnoreCase("Raids");
 		boolean otherTab = tabName.equalsIgnoreCase("Other");
+		boolean cluesTab = tabName.equalsIgnoreCase("Clues");
 		Widget[] names = pageList.getDynamicChildren();
 		if (names == null)
 		{
@@ -436,7 +437,7 @@ public class DropTrackerPlugin extends Plugin
 			}
 			name = name.replace(" *", "");
 			boolean slayerOrTd = name.equalsIgnoreCase("Slayer") || name.equalsIgnoreCase("Tormented Demons");
-			boolean wanted = allWanted || (otherTab && slayerOrTd);
+			boolean wanted = allWanted || (otherTab && slayerOrTd) || (cluesTab && findBossByPage(name) != null);
 			if (importArmed && wanted && !importedPages.contains(name.toLowerCase()))
 			{
 				nameW.setText(name + " *");
@@ -470,6 +471,10 @@ public class DropTrackerPlugin extends Plugin
 		if (t.equals("other"))
 		{
 			return findListContaining("Slayer", "Tormented Demons");
+		}
+		if (t.equals("clues"))
+		{
+			return findListContaining("Medium Treasure Trails", "Master Treasure Trails");
 		}
 		int listIndex = -1;
 		if (t.equals("bosses"))

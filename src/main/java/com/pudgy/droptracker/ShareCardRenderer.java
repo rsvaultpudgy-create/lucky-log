@@ -308,6 +308,7 @@ class ShareCardRenderer
 		String item;
 		double ratio;
 		int detail; // dry-streak length or the KC gap it landed in
+		boolean ongoing; // true when the streak hasn't ended yet
 	}
 
 	BufferedImage renderOverviewCard()
@@ -351,14 +352,19 @@ class ShareCardRenderer
 				{
 					continue;
 				}
-				// current dry streak on this unique
+				// current dry streak on this unique — also counts toward all-time,
+				// so all-time driest can never show less dry than the current streak
 				if (kc > 0)
 				{
 					int since = kc - plugin.getLastDropKc(b, d.name);
 					double ratio = since / d.oneInX;
 					if (since > 0 && (curDry == null || ratio > curDry.ratio))
 					{
-						curDry = highlight(b, d.name, ratio, since);
+						curDry = highlight(b, d.name, ratio, since, true);
+					}
+					if (since > 0 && (allDry == null || ratio > allDry.ratio))
+					{
+						allDry = highlight(b, d.name, ratio, since, true);
 					}
 				}
 				// historical gaps between hits
@@ -374,11 +380,11 @@ class ShareCardRenderer
 					double ratio = gap / d.oneInX;
 					if (allDry == null || ratio > allDry.ratio)
 					{
-						allDry = highlight(b, d.name, ratio, gap);
+						allDry = highlight(b, d.name, ratio, gap, false);
 					}
 					if (d.oneInX >= 20 && (lucky == null || ratio < lucky.ratio))
 					{
-						lucky = highlight(b, d.name, ratio, k);
+						lucky = highlight(b, d.name, ratio, k, false);
 					}
 				}
 			}
@@ -414,7 +420,9 @@ class ShareCardRenderer
 		paintHighlight(g, 40, py, pw, ph, "CURRENT DRIEST", DRY_RED, curDry, sprites,
 			curDry == null ? null : String.format("%,d dry · %.1f× the rate", curDry.detail, curDry.ratio));
 		paintHighlight(g, 40 + pw + 17, py, pw, ph, "ALL-TIME DRIEST", new Color(0xe8, 0xa8, 0x5c), allDry, sprites,
-			allDry == null ? null : String.format("went %,d · %.1f× the rate", allDry.detail, allDry.ratio));
+			allDry == null ? null : String.format(allDry.ongoing
+				? "%,d and counting · %.1f× the rate"
+				: "went %,d · %.1f× the rate", allDry.detail, allDry.ratio));
 		paintHighlight(g, 40 + (pw + 17) * 2, py, pw, ph, "LUCKIEST HIT", GREEN, lucky, sprites,
 			lucky == null ? null : String.format("hit at %.2f× the rate · KC %,d", lucky.ratio, lucky.detail));
 
@@ -486,13 +494,14 @@ class ShareCardRenderer
 		return img;
 	}
 
-	private static Highlight highlight(BossRegistry.Boss b, String item, double ratio, int detail)
+	private static Highlight highlight(BossRegistry.Boss b, String item, double ratio, int detail, boolean ongoing)
 	{
 		Highlight h = new Highlight();
 		h.boss = b;
 		h.item = item;
 		h.ratio = ratio;
 		h.detail = detail;
+		h.ongoing = ongoing;
 		return h;
 	}
 
