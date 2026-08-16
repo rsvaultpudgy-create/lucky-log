@@ -62,9 +62,10 @@ class DropTrackerPanel extends PluginPanel
 	private final JComboBox<String> bossBox = new JComboBox<>();
 	private final JComboBox<String> goalBox = new JComboBox<>();
 	private final JTextField searchField = new JTextField();
-	private final JToggleButton totalBtn = new JToggleButton("Total Loot");
+	private final JToggleButton totalBtn = new JToggleButton("Totals");
 	private final JButton setKcBtn = new JButton("Set KC");
 	private final JButton shareBtn = new JButton("Share Card");
+	private static final Color GOLD = new Color(0xd4, 0xaf, 0x5e);
 	private final ShareCardRenderer cardRenderer;
 	private final JLabel header = new JLabel();
 	private final JLabel imageLabel = new JLabel();
@@ -92,6 +93,37 @@ class DropTrackerPanel extends PluginPanel
 		titleRow.add(importButton());
 		top.add(titleRow);
 		top.add(Box.createVerticalStrut(6));
+
+		// one compact action bar: two small utility buttons + the Share Card CTA
+		JPanel actionsRow = new JPanel();
+		actionsRow.setLayout(new BoxLayout(actionsRow, BoxLayout.X_AXIS));
+		actionsRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+		actionsRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+		setKcBtn.setFont(setKcBtn.getFont().deriveFont(11f));
+		setKcBtn.setMargin(new java.awt.Insets(2, 6, 2, 6));
+		setKcBtn.setFocusable(false);
+		setKcBtn.setToolTipText("Set your existing kill count (or reward pulls) so the dry calc is right from the start.");
+		setKcBtn.addActionListener(e -> editKc());
+		totalBtn.setFont(totalBtn.getFont().deriveFont(11f));
+		totalBtn.setMargin(new java.awt.Insets(2, 6, 2, 6));
+		totalBtn.setFocusable(false);
+		totalBtn.setToolTipText("Toggle between the recent-kill feed and your all-time totals for this boss.");
+		totalBtn.addActionListener(e -> refresh());
+		shareBtn.setFont(shareBtn.getFont().deriveFont(Font.BOLD, 12f));
+		shareBtn.setForeground(GOLD);
+		shareBtn.setMargin(new java.awt.Insets(2, 8, 2, 8));
+		shareBtn.setFocusable(false);
+		shareBtn.setToolTipText("Create a shareable image card — copy it to your clipboard or save it as a PNG.");
+		shareBtn.addActionListener(e -> showShareMenu());
+		shareBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+		actionsRow.add(setKcBtn);
+		actionsRow.add(Box.createHorizontalStrut(4));
+		actionsRow.add(totalBtn);
+		actionsRow.add(Box.createHorizontalStrut(4));
+		actionsRow.add(shareBtn);
+		top.add(actionsRow);
+		top.add(Box.createVerticalStrut(8));
+
 		top.add(grey("Search:"));
 		searchField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
 		searchField.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -153,23 +185,6 @@ class DropTrackerPanel extends PluginPanel
 		headerRow.add(header, BorderLayout.CENTER);
 		headerRow.add(imageLabel, BorderLayout.EAST);
 		top.add(headerRow);
-		top.add(Box.createVerticalStrut(6));
-		setKcBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
-		setKcBtn.setToolTipText("Set your existing kill count (or reward pulls) so the dry calc is right from the start.");
-		setKcBtn.addActionListener(e -> editKc());
-		top.add(setKcBtn);
-		top.add(Box.createVerticalStrut(4));
-		totalBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
-		totalBtn.setFocusable(false);
-		totalBtn.setToolTipText("Toggle between the recent-kill feed and your all-time totals for this boss.");
-		totalBtn.addActionListener(e -> refresh());
-		top.add(totalBtn);
-		top.add(Box.createVerticalStrut(4));
-		shareBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
-		shareBtn.setFocusable(false);
-		shareBtn.setToolTipText("Create a shareable image card — copy it to your clipboard or save it as a PNG.");
-		shareBtn.addActionListener(e -> showShareMenu());
-		top.add(shareBtn);
 		top.add(Box.createVerticalStrut(8));
 		add(top, BorderLayout.NORTH);
 
@@ -781,19 +796,18 @@ class DropTrackerPanel extends PluginPanel
 			new Thread(() ->
 			{
 				BufferedImage card = null;
-				String error = null;
 				try
 				{
 					card = boss != null ? cardRenderer.renderBossCard(boss) : cardRenderer.renderOverviewCard();
 				}
 				catch (Exception ex)
 				{
-					error = ex.getMessage();
+					// fall through to "Failed" feedback
 				}
 				String feedback;
 				if (card == null)
 				{
-					feedback = "Card failed" + (error != null ? ": " + error : "");
+					feedback = "Failed";
 				}
 				else if (save)
 				{
@@ -826,11 +840,11 @@ class DropTrackerPanel extends PluginPanel
 		try
 		{
 			java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new ImageSelection(img), null);
-			return "Copied — paste it anywhere!";
+			return "Copied!";
 		}
 		catch (Exception e)
 		{
-			return "Clipboard unavailable";
+			return "Failed";
 		}
 	}
 
@@ -841,16 +855,16 @@ class DropTrackerPanel extends PluginPanel
 			java.io.File dir = new java.io.File(net.runelite.client.RuneLite.SCREENSHOT_DIR, "lucky-log");
 			if (!dir.exists() && !dir.mkdirs())
 			{
-				return "Couldn't create folder";
+				return "Failed";
 			}
 			String stem = boss != null ? DropTrackerPlugin.imgKey(boss.display) : "overview";
 			java.io.File f = new java.io.File(dir, "luckylog-" + stem + "-" + System.currentTimeMillis() + ".png");
 			javax.imageio.ImageIO.write(img, "png", f);
-			return "Saved to screenshots";
+			return "Saved!";
 		}
 		catch (Exception e)
 		{
-			return "Save failed";
+			return "Failed";
 		}
 	}
 
