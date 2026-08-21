@@ -723,9 +723,9 @@ class ShareCardRenderer
 		{
 			latch.await(4, TimeUnit.SECONDS);
 		}
-		catch (InterruptedException e)
+		catch (InterruptedException ignored)
 		{
-			Thread.currentThread().interrupt();
+			// render with whatever sprites loaded in time
 		}
 		return out;
 	}
