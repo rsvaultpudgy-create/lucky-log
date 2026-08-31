@@ -6011,6 +6011,9 @@ public final class BossRegistry
 		));
 
 		alias("Sol Heredit", "Fortis Colosseum");
+		// loot tracker event names for the skilling-boss reward containers
+		alias("Reward cart (Wintertodt)", "Wintertodt");
+		alias("Reward pool (Tempoross)", "Tempoross");
 		alias("Reward casket (medium)", "Clue Scroll (Medium)");
 		alias("Reward casket (hard)", "Clue Scroll (Hard)");
 		alias("Reward casket (elite)", "Clue Scroll (Elite)");

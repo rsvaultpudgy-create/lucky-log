@@ -177,6 +177,11 @@ public class DropTrackerPlugin extends Plugin
 	private final java.util.Set<String> importedPages = new java.util.HashSet<>();
 	private volatile String cardPlayerName;
 
+	// Pets never appear in LootReceived (they become a follower or slip into the
+	// backpack), so they're detected from the game's chat line and paired with the
+	// boss whose loot arrived within a few ticks — in either order.
+	private final PetPairer petPairer = new PetPairer();
+
 	@Override
 	protected void startUp()
 	{
@@ -283,6 +288,64 @@ public class DropTrackerPlugin extends Plugin
 		hist.add(new LootEntry(kc, items));
 		saveHistory(boss, hist);
 
+		// pair with a pet message that arrived just before this loot
+		if (petPairer.onLoot(boss, client.getTickCount()) != null)
+		{
+			recordPet(boss);
+		}
+
+		SwingUtilities.invokeLater(() -> panel.onKill(boss));
+	}
+
+	/** Record the boss's pet as obtained at the current KC (unique history, totals, loot feed). */
+	private void recordPet(BossRegistry.Boss boss)
+	{
+		BossRegistry.Drop pet = null;
+		for (BossRegistry.Drop d : boss.drops)
+		{
+			if (d.pet)
+			{
+				pet = d;
+				break;
+			}
+		}
+		if (pet == null)
+		{
+			return;
+		}
+		int kc = getKc(boss);
+		addUniqueKc(boss, pet.name, kc);
+		setRaidSnap(boss, pet.name);
+
+		int id = iconId(pet.name);
+		if (id > 0)
+		{
+			Map<Integer, ItemTotal> totals = getTotalsMap(boss);
+			ItemTotal t = totals.get(id);
+			if (t == null)
+			{
+				t = new ItemTotal(id, pet.name);
+				totals.put(id, t);
+			}
+			t.total += 1;
+			t.count++;
+			saveTotals(boss, totals);
+
+			List<LootEntry> hist = getHistory(boss);
+			if (!hist.isEmpty() && hist.get(hist.size() - 1).kc == kc)
+			{
+				LootEntry last = hist.get(hist.size() - 1);
+				if (last.items == null)
+				{
+					last.items = new ArrayList<>();
+				}
+				last.items.add(new LootEntry.Item(id, pet.name, 1));
+				saveHistory(boss, hist);
+			}
+		}
+		final String petName = pet.name;
+		client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
+			"Lucky Log: " + petName + " recorded at " + boss.shortName() + " KC " + kc + "!", null);
 		SwingUtilities.invokeLater(() -> panel.onKill(boss));
 	}
 
@@ -912,6 +975,15 @@ public class DropTrackerPlugin extends Plugin
 		String msg = Text.removeTags(event.getMessage());
 		try
 		{
+			if (PetPairer.isPetMessage(msg))
+			{
+				BossRegistry.Boss petBoss = petPairer.onPetMessage(client.getTickCount());
+				if (petBoss != null)
+				{
+					recordPet(petBoss);
+				}
+				return;
+			}
 			Matcher wave = COLO_WAVE_MSG.matcher(msg);
 			if (wave.find())
 			{
