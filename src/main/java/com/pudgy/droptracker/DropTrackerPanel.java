@@ -27,14 +27,19 @@ package com.pudgy.droptracker;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.BasicStroke;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.Image;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -71,6 +76,9 @@ class DropTrackerPanel extends PluginPanel
 	private final JLabel imageLabel = new JLabel();
 	private final JPanel body = new JPanel();
 	private boolean updating;
+	// Rows whose full KC history the user has clicked open, keyed by boss display + "|" + drop
+	// name. Held in the panel rather than config, so it resets on client restart.
+	private final Set<String> expandedKcs = new HashSet<>();
 
 	DropTrackerPanel(DropTrackerPlugin plugin, ItemManager itemManager)
 	{
@@ -208,9 +216,37 @@ class DropTrackerPanel extends PluginPanel
 		return l;
 	}
 
-	// Obtain history sub-line: unknown (pre-tracking) count first, then each tracked KC.
-	private static String obtainSuffix(String kcLabel, int unknown, List<Integer> got)
+	// At or above this many obtains a row shows only its count badge until it is clicked.
+	// Shares the threshold with countColor, so a badge that turns blue is also collapsed.
+	private static final int KC_COLLAPSE_AT = 10;
+
+	private static String countColor(int total)
 	{
+		if (total >= 100)
+		{
+			return "#c77dff";
+		}
+		if (total >= KC_COLLAPSE_AT)
+		{
+			return "#87cefa";
+		}
+		return "#9acd32";
+	}
+
+	// Obtain history sub-line: an ×N badge, then the unknown (pre-tracking) count and each
+	// tracked KC. A collapsed row stops after the badge so long histories stay one line.
+	private static String obtainSuffix(String kcLabel, int unknown, List<Integer> got, boolean collapsed)
+	{
+		int total = unknown + got.size();
+		StringBuilder sb = new StringBuilder("<br>&nbsp;&nbsp;");
+		if (total > 1)
+		{
+			sb.append("<font color='").append(countColor(total)).append("'>×").append(total).append("</font>&nbsp;&nbsp;");
+		}
+		if (collapsed)
+		{
+			return sb.append("<font color='#6f6f6f'>click to show KCs</font>").toString();
+		}
 		java.util.List<String> parts = new java.util.ArrayList<>();
 		if (unknown > 0)
 		{
@@ -220,7 +256,7 @@ class DropTrackerPanel extends PluginPanel
 		{
 			parts.add("<font color='#9acd32'>" + kcLabel + kc + "</font>");
 		}
-		return "<br>&nbsp;&nbsp;" + String.join(" · ", parts);
+		return sb.append(String.join(" · ", parts)).toString();
 	}
 
 	private void confirmReset(BossRegistry.Boss b)
@@ -372,11 +408,24 @@ class DropTrackerPanel extends PluginPanel
 		updating = true;
 		goalBox.removeAllItems();
 		goalBox.addItem("(none)");
+		String goal = plugin.getGoal(b);
+		boolean goalStillNotable = false;
 		for (BossRegistry.Drop d : b.notableDrops())
 		{
 			goalBox.addItem(d.name);
+			if (d.name.equals(goal))
+			{
+				goalStillNotable = true;
+			}
 		}
-		String goal = plugin.getGoal(b);
+		// A goal saved before its drop was demoted out of notableDrops() is no longer in the
+		// dropdown, so setSelectedItem would silently leave the box on "(none)" while the
+		// header kept rendering the goal block from b.drops. Clear it instead.
+		if (goal != null && !goalStillNotable)
+		{
+			plugin.setGoal(b, null);
+			goal = null;
+		}
 		goalBox.setSelectedItem(goal == null ? "(none)" : goal);
 		updating = false;
 		plugin.warmPrices(b);
@@ -599,11 +648,15 @@ class DropTrackerPanel extends PluginPanel
 			List<Integer> got = plugin.getUniqueKcs(b, d.name);
 			int rawUnknown = plugin.getUnknownCount(b, d.name);
 			int unknown = plugin.showUnknownKc() ? rawUnknown : 0;
+			int total = unknown + got.size();
+			boolean collapsible = total >= KC_COLLAPSE_AT;
+			final String kcKey = b.display + "|" + d.name;
+			boolean collapsed = collapsible && !expandedKcs.contains(kcKey);
 			StringBuilder s = new StringBuilder("<html>")
 				.append(d.name).append("  —  1/").append(fmt(d.oneInX));
 			if (unknown > 0 || !got.isEmpty())
 			{
-				s.append(obtainSuffix(isReward(b) ? "pull " : "KC ", unknown, got));
+				s.append(obtainSuffix(isReward(b) ? "pull " : "KC ", unknown, got, collapsed));
 			}
 			s.append("</html>");
 			JLabel dropLine = line(s.toString(), d.pet ? new Color(0xFF, 0xD7, 0x00) : Color.WHITE);
@@ -611,6 +664,22 @@ class DropTrackerPanel extends PluginPanel
 			{
 				dropLine.setIcon(starIcon());
 				dropLine.setIconTextGap(4);
+			}
+			if (collapsible)
+			{
+				dropLine.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+				dropLine.addMouseListener(new MouseAdapter()
+				{
+					@Override
+					public void mouseClicked(MouseEvent e)
+					{
+						if (!expandedKcs.remove(kcKey))
+						{
+							expandedKcs.add(kcKey);
+						}
+						refresh();
+					}
+				});
 			}
 			body.add(dropLine);
 		}
