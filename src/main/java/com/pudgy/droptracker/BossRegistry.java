@@ -2676,8 +2676,11 @@ public final class BossRegistry
 		));
 		add(new Boss("Revenants"));
 		add(new Boss("Opulent salvage",
-			new Drop("Facility bottle (empty)", 300),
-			new Drop("Sailors' amulet (inert)", 300),
+			// One-time unlocks: they still price in the recent-loot feed via b.drops,
+			// but they are not repeatable, so they do not belong in the notable list,
+			// the goal dropdown, the uniques counter, or the dry-streak math.
+			Drop.common("Facility bottle (empty)", 300),
+			Drop.common("Sailors' amulet (inert)", 300),
 			new Drop("Dragon nails", 2000),
 			new Drop("Mouldy doll", 3000),
 			new Drop("Dragon cannon barrel", 20000),
