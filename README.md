@@ -24,6 +24,7 @@ A RuneLite side panel for chasing drops: every boss's full loot table, a dry-str
 
 - Drop rates are sourced from the [OSRS Wiki](https://oldschool.runescape.wiki/) and converted to exact per-kill probabilities.
 - Uses only loot events and local RuneLite config storage — no external files, no network calls.
+- **Per-account tracking** (1.2+) — every account you log into keeps its own KC, uniques, totals and loot feed, so an alt's grind never shows up on your main's cards. Data from before 1.2 was shared between accounts; the first time each account logs in after updating, Lucky Log asks which bosses belong to it (right-click **Import Collection Log** to reopen that prompt or delete the old shared copy once every account has claimed its share).
 
 ## Support
 

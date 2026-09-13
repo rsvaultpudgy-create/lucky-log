@@ -314,7 +314,127 @@ class DropTrackerPanel extends PluginPanel
 		b.setToolTipText("Fills in drops you got before Lucky Log, from your collection log.");
 		b.setMaximumSize(new Dimension(180, 26));
 		b.addActionListener(e -> importDialog());
+		// Right-click: the pre-1.2 shared-data tools live here so they stay out of the way.
+		javax.swing.JPopupMenu legacy = new javax.swing.JPopupMenu();
+		javax.swing.JMenuItem imp = new javax.swing.JMenuItem("Import data recorded before 1.2…");
+		imp.addActionListener(e -> legacyImportDialog());
+		legacy.add(imp);
+		javax.swing.JMenuItem del = new javax.swing.JMenuItem("Delete the shared pre-1.2 data…");
+		del.addActionListener(e -> confirmDeleteLegacy());
+		legacy.add(del);
+		b.setComponentPopupMenu(legacy);
 		return b;
+	}
+
+	/**
+	 * Pre-1.2 Lucky Log kept one shared store for every account on the client. Let the
+	 * player pick, boss by boss, which of that data belongs to the account that is logged
+	 * in now. Shown once per account automatically; re-openable from the import button.
+	 */
+	void legacyImportDialog()
+	{
+		if (!plugin.hasProfile())
+		{
+			JOptionPane.showMessageDialog(this,
+				"<html><body style='width:240px'>Log in first, so Lucky Log knows which account to give the data to.</body></html>",
+				"Import data recorded before 1.2", JOptionPane.INFORMATION_MESSAGE);
+			return;
+		}
+		java.util.Map<BossRegistry.Boss, Integer> legacy = plugin.legacyBosses();
+		if (legacy.isEmpty())
+		{
+			JOptionPane.showMessageDialog(this,
+				"<html><body style='width:240px'>There is no shared pre-1.2 data left to import.</body></html>",
+				"Import data recorded before 1.2", JOptionPane.INFORMATION_MESSAGE);
+			return;
+		}
+		String who = plugin.cardPlayerName();
+		JPanel content = new JPanel(new BorderLayout(0, 8));
+		content.add(new JLabel("<html><body style='width:300px'>Lucky Log now tracks each account separately. "
+			+ "Everything recorded before this update was shared between all your accounts.<br><br>"
+			+ "Tick the bosses that belong to <b>" + (who.isEmpty() ? "this account" : who) + "</b>. "
+			+ "Anything this account has recorded since the update is kept and added on top. "
+			+ "The shared copy stays until you delete it, so you can do this on each account.</body></html>"),
+			BorderLayout.NORTH);
+		JPanel list = new JPanel();
+		list.setLayout(new BoxLayout(list, BoxLayout.Y_AXIS));
+		java.util.List<javax.swing.JCheckBox> boxes = new java.util.ArrayList<>();
+		java.util.List<BossRegistry.Boss> bosses = new java.util.ArrayList<>(legacy.keySet());
+		for (BossRegistry.Boss b : bosses)
+		{
+			int kc = legacy.get(b);
+			// A boss this account already claimed defaults to unticked: importing it twice
+			// would stack the shared numbers on top of themselves.
+			boolean done = plugin.legacyImported(b);
+			String label = b.shortName() + (kc > 0 ? "   (" + (isReward(b) ? "pulls " : "KC ") + String.format("%,d", kc) + ")" : "")
+				+ (done ? "   — already imported" : "");
+			javax.swing.JCheckBox cb = new javax.swing.JCheckBox(label, !done);
+			cb.setFocusable(false);
+			boxes.add(cb);
+			list.add(cb);
+		}
+		javax.swing.JScrollPane scroll = new javax.swing.JScrollPane(list);
+		scroll.setPreferredSize(new Dimension(320, Math.min(300, 24 * bosses.size() + 8)));
+		scroll.setBorder(BorderFactory.createEmptyBorder());
+		content.add(scroll, BorderLayout.CENTER);
+		JPanel selRow = new JPanel();
+		selRow.setLayout(new BoxLayout(selRow, BoxLayout.X_AXIS));
+		JButton all = new JButton("Select all");
+		all.setFocusable(false);
+		all.addActionListener(e -> boxes.forEach(cb -> cb.setSelected(true)));
+		JButton none = new JButton("Select none");
+		none.setFocusable(false);
+		none.addActionListener(e -> boxes.forEach(cb -> cb.setSelected(false)));
+		selRow.add(all);
+		selRow.add(Box.createHorizontalStrut(4));
+		selRow.add(none);
+		content.add(selRow, BorderLayout.SOUTH);
+
+		Object[] options = {"Import selected", "Not now"};
+		int res = JOptionPane.showOptionDialog(this, content, "Import data recorded before 1.2",
+			JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+		if (res != 0)
+		{
+			return;
+		}
+		int n = 0;
+		for (int i = 0; i < bosses.size(); i++)
+		{
+			if (boxes.get(i).isSelected())
+			{
+				plugin.importLegacy(bosses.get(i));
+				n++;
+			}
+		}
+		rerender();
+		JOptionPane.showMessageDialog(this,
+			"<html><body style='width:260px'>Imported " + n + (n == 1 ? " boss" : " bosses") + " into "
+				+ (who.isEmpty() ? "this account" : who) + ".<br><br>"
+				+ "If you had imported your collection log before 1.2, run <b>Import Collection Log</b> again on this "
+				+ "account so the pre-tracking counts are exact.<br><br>"
+				+ "Once every account has claimed its share, right-click <b>Import Collection Log</b> and "
+				+ "choose <i>Delete the shared pre-1.2 data</i> so this prompt stops appearing on new accounts.</body></html>",
+			"Import data recorded before 1.2", JOptionPane.INFORMATION_MESSAGE);
+	}
+
+	private void confirmDeleteLegacy()
+	{
+		if (!plugin.hasLegacyData())
+		{
+			JOptionPane.showMessageDialog(this,
+				"<html><body style='width:240px'>There is no shared pre-1.2 data left.</body></html>",
+				"Delete shared data", JOptionPane.INFORMATION_MESSAGE);
+			return;
+		}
+		String msg = "<html><body style='width:250px'>This permanently deletes the shared store from before 1.2. "
+			+ "Data already imported into an account is kept. Any account that has not imported yet "
+			+ "will not be able to. This cannot be undone.</body></html>";
+		int res = JOptionPane.showConfirmDialog(this, msg, "Delete the shared pre-1.2 data?",
+			JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+		if (res == JOptionPane.YES_OPTION)
+		{
+			plugin.deleteLegacyData();
+		}
 	}
 
 	private void importDialog()
@@ -560,6 +680,15 @@ class DropTrackerPanel extends PluginPanel
 		refresh();
 	}
 
+	/** Account switched or logged out: re-sync the goal dropdown as well as the header/body. */
+	void onAccountChanged()
+	{
+		if (current() != null)
+		{
+			selectBoss();
+		}
+	}
+
 	private void refresh()
 	{
 		BossRegistry.Boss b = current();
@@ -570,8 +699,18 @@ class DropTrackerPanel extends PluginPanel
 		int kc = plugin.getKc(b);
 		String goal = plugin.getGoal(b);
 
+		// Data is per account, so nothing can be read or written until RuneLite knows who
+		// is logged in. Disable the edits that would otherwise be silently dropped.
+		boolean loggedIn = plugin.hasProfile();
+		setKcBtn.setEnabled(loggedIn);
+		goalBox.setEnabled(loggedIn);
 		setKcBtn.setText(isReward(b) ? "Set pulls" : "Set KC");
-		StringBuilder h = new StringBuilder("<html><body style='width: 124px'>").append(unitCap(b)).append(": ").append(kc);
+		StringBuilder h = new StringBuilder("<html><body style='width: 124px'>");
+		if (!loggedIn)
+		{
+			h.append("<font color='#888888'>Log in to see this account's Lucky Log.</font><br><br>");
+		}
+		h.append(unitCap(b)).append(": ").append(kc);
 		Double avg = plugin.avgPurpleOneInX(b);
 		if (avg != null)
 		{
@@ -588,7 +727,19 @@ class DropTrackerPanel extends PluginPanel
 					gd = d;
 				}
 			}
-			if (gd != null)
+			if (gd != null && plugin.doneForever(b, gd))
+			{
+				// Pets and one-time uniques never roll again once owned — no dry streak exists.
+				int last = plugin.getLastDropKc(b, goal);
+				h.append("<br><br>Goal: ").append(goal)
+					.append("<br>Rate: 1/").append(fmt(gd.oneInX))
+					.append("<br><font color='#9acd32'>Obtained")
+					.append(last > 0 ? " at " + unitCap(b) + " " + last : " (pre-tracking)")
+					.append("</font><br><font color='#888888'>")
+					.append(gd.pet ? "Pets cannot drop twice." : "This drop cannot be received twice.")
+					.append("</font>");
+			}
+			else if (gd != null)
 			{
 				int since = kc - plugin.getLastDropKc(b, goal);
 				Double smart = plugin.smartChanceHave(b, goal);
@@ -654,6 +805,10 @@ class DropTrackerPanel extends PluginPanel
 			boolean collapsed = collapsible && !expandedKcs.contains(kcKey);
 			StringBuilder s = new StringBuilder("<html>")
 				.append(d.name).append("  —  1/").append(fmt(d.oneInX));
+			if (d.once)
+			{
+				s.append(" <font color='#6f6f6f'>(one-time)</font>");
+			}
 			if (unknown > 0 || !got.isEmpty())
 			{
 				s.append(obtainSuffix(isReward(b) ? "pull " : "KC ", unknown, got, collapsed));

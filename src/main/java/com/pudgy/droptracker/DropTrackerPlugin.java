@@ -48,6 +48,7 @@ import net.runelite.api.widgets.ComponentID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.api.widgets.InterfaceID;
 import net.runelite.client.events.ConfigChanged;
+import net.runelite.client.events.RuneScapeProfileChanged;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
@@ -190,6 +191,9 @@ public class DropTrackerPlugin extends Plugin
 		nav = NavigationButton.builder().tooltip("Lucky Log").icon(icon).priority(7).panel(panel).build();
 		clientToolbar.addNavigation(nav);
 		SwingUtilities.invokeLater(panel::rebuild);
+		// The Hub can swap the jar in while a player is already logged in, in which case no
+		// profile-changed event will arrive — check once at start-up too.
+		maybeOfferLegacyImport();
 	}
 
 	@Override
@@ -618,6 +622,61 @@ public class DropTrackerPlugin extends Plugin
 	}
 
 
+	// ===== per-account storage =====
+	// Everything Lucky Log tracks is stored against the logged-in RuneScape account
+	// (RuneLite's "rsprofile" scope), so two accounts played on the same client never
+	// share KC, uniques, totals or the loot feed. Before 1.2 all of this lived in the
+	// plain config group and was shared by every account — see the legacy import below.
+	// (package-private and non-final so tests can swap in an in-memory store)
+	<T> T pget(String key, Class<T> type)
+	{
+		return configManager.getRSProfileConfiguration(GROUP, key, type);
+	}
+
+	void pset(String key, Object value)
+	{
+		configManager.setRSProfileConfiguration(GROUP, key, value);
+	}
+
+	void punset(String key)
+	{
+		configManager.unsetRSProfileConfiguration(GROUP, key);
+	}
+
+	/** True once RuneLite has resolved which account is logged in; false on the login screen. */
+	boolean hasProfile()
+	{
+		return configManager.getRSProfileKey() != null;
+	}
+
+	@Subscribe
+	public void onRuneScapeProfileChanged(RuneScapeProfileChanged e)
+	{
+		// Account switched (or logged out): drop the cached card name and repaint the panel
+		// from the new account's data. Offer the pre-1.2 shared data once per account.
+		cardPlayerName = null;
+		if (panel != null)
+		{
+			SwingUtilities.invokeLater(panel::onAccountChanged);
+		}
+		maybeOfferLegacyImport();
+	}
+
+	/** First time each account is seen after 1.2, offer to claim the old shared data. */
+	private void maybeOfferLegacyImport()
+	{
+		if (panel == null || !hasProfile() || Boolean.TRUE.equals(pget(LEGACY_PROMPTED, Boolean.class)))
+		{
+			return;
+		}
+		if (!hasLegacyData())
+		{
+			return;
+		}
+		pset(LEGACY_PROMPTED, true);
+		SwingUtilities.invokeLater(panel::legacyImportDialog);
+	}
+
 	// --- keys ---
 	private String key(BossRegistry.Boss b)
 	{
@@ -629,46 +688,327 @@ public class DropTrackerPlugin extends Plugin
 		return drop.toLowerCase().replace(' ', '_').replace("'", "");
 	}
 
-	// --- KC ---
-	int getKc(BossRegistry.Boss b)
-	{
-		Integer v = configManager.getConfiguration(GROUP, "kc_" + key(b), Integer.class);
-		return v == null ? 0 : v;
-	}
+	// Every per-boss key prefix Lucky Log writes. Boss-level ones are "<prefix><boss>",
+	// per-drop ones are "<prefix><boss>_<drop>".
+	private static final String[] BOSS_KEYS = {"kc_", "goal_", "hist_", "totals_", "rsum_", "rcnt_"};
+	private static final String[] DROP_KEYS = {"ukc_", "unk_", "ibase_", "rsnap_", "esum_", "esnap_"};
+	private static final String LEGACY_PROMPTED = "legacy_prompted";
+	private static final String LEGACY_DONE = "legacy_done_";
 
-	void setKc(BossRegistry.Boss b, int v)
+	private List<String> keysFor(BossRegistry.Boss b)
 	{
-		configManager.setConfiguration(GROUP, "kc_" + key(b), Math.max(0, v));
-	}
-
-	// --- goal + dry ---
-	String getGoal(BossRegistry.Boss b)
-	{
-		return configManager.getConfiguration(GROUP, "goal_" + key(b), String.class);
-	}
-
-	void setGoal(BossRegistry.Boss b, String drop)
-	{
-		if (drop == null)
+		String k = key(b);
+		List<String> out = new ArrayList<>();
+		for (String p : BOSS_KEYS)
 		{
-			configManager.unsetConfiguration(GROUP, "goal_" + key(b));
+			out.add(p + k);
 		}
-		else
+		for (BossRegistry.Drop d : b.drops)
 		{
-			configManager.setConfiguration(GROUP, "goal_" + key(b), drop);
+			for (String p : DROP_KEYS)
+			{
+				out.add(p + k + "_" + dkey(d.name));
+			}
+		}
+		return out;
+	}
+
+	// ===== pre-1.2 shared data (plain config group, not account-scoped) =====
+
+	/** Raw legacy value for a key, or null. Values are copied as strings so every type survives. */
+	String legacyRaw(String key)
+	{
+		return configManager.getConfiguration(GROUP, key);
+	}
+
+	/** Every key (group prefix stripped) still present in the old shared store. */
+	java.util.Set<String> legacyKeyNames()
+	{
+		java.util.Set<String> present = new java.util.HashSet<>();
+		String prefix = GROUP + ".";
+		for (String whole : configManager.getConfigurationKeys(prefix))
+		{
+			present.add(whole.substring(prefix.length()));
+		}
+		return present;
+	}
+
+	void legacyUnset(String key)
+	{
+		configManager.unsetConfiguration(GROUP, key);
+	}
+
+	private Integer legacyInt(String key)
+	{
+		String v = legacyRaw(key);
+		if (v == null)
+		{
+			return null;
+		}
+		try
+		{
+			return Integer.parseInt(v.trim());
+		}
+		catch (NumberFormatException e)
+		{
+			return null;
 		}
 	}
 
-	int getLastDropKc(BossRegistry.Boss b, String drop)
+	private Double legacyDouble(String key)
 	{
-		List<Integer> kcs = getUniqueKcs(b, drop);
-		return kcs.isEmpty() ? 0 : kcs.get(kcs.size() - 1);
+		String v = legacyRaw(key);
+		if (v == null)
+		{
+			return null;
+		}
+		try
+		{
+			return Double.parseDouble(v.trim());
+		}
+		catch (NumberFormatException e)
+		{
+			return null;
+		}
 	}
 
-	// --- per-unique KC history ---
-	List<Integer> getUniqueKcs(BossRegistry.Boss b, String item)
+	/** Bosses that have any data left in the old shared store, with the KC recorded there. */
+	Map<BossRegistry.Boss, Integer> legacyBosses()
 	{
-		String json = configManager.getConfiguration(GROUP, "ukc_" + key(b) + "_" + dkey(item), String.class);
+		Map<BossRegistry.Boss, Integer> out = new LinkedHashMap<>();
+		java.util.Set<String> present = legacyKeyNames();
+		if (present.isEmpty())
+		{
+			return out;
+		}
+		for (BossRegistry.Boss b : BossRegistry.all())
+		{
+			boolean any = false;
+			for (String k : keysFor(b))
+			{
+				if (present.contains(k))
+				{
+					any = true;
+					break;
+				}
+			}
+			if (any)
+			{
+				Integer kc = legacyInt("kc_" + key(b));
+				out.put(b, kc == null ? 0 : kc);
+			}
+		}
+		return out;
+	}
+
+	boolean hasLegacyData()
+	{
+		return !legacyBosses().isEmpty();
+	}
+
+	/**
+	 * Copy one boss's pre-1.2 shared data into the current account. Anything this account
+	 * has recorded since the split is kept and stacked on top: the shared KC becomes the
+	 * base, so per-account kill numbers and unique KCs shift up by it, counts add, and
+	 * snapshots/goals already set on the account win over the shared copy.
+	 */
+	void importLegacy(BossRegistry.Boss b)
+	{
+		if (!hasProfile())
+		{
+			return;
+		}
+		String k = key(b);
+		Integer lk = legacyInt("kc_" + k);
+		int legacyKc = lk == null ? 0 : lk;
+		// Snapshot everything this account already holds BEFORE writing: getTotalsMap()
+		// rebuilds from the loot feed when no totals are stored, so reading it after the
+		// merged feed is saved would count the legacy loot twice.
+		int ownKc = getKc(b);
+		List<LootEntry> ownHist = getHistory(b);
+		Map<Integer, ItemTotal> own = getTotalsMap(b);
+		boolean ownHasData = ownKc > 0 || !ownHist.isEmpty() || !own.isEmpty();
+		int offset = ownHasData ? legacyKc : 0;
+
+		// KC: shared base + whatever this account has done since
+		if (legacyKc > 0 || ownKc > 0)
+		{
+			pset("kc_" + k, legacyKc + ownKc);
+		}
+		// goal: keep the account's own if set
+		String lgoal = legacyRaw("goal_" + k);
+		if (lgoal != null && getGoal(b) == null)
+		{
+			pset("goal_" + k, lgoal);
+		}
+		// loot feed: legacy entries first, own entries shifted up by the shared KC
+		List<LootEntry> merged = new ArrayList<>(parseHistory(legacyRaw("hist_" + k)));
+		for (LootEntry e : ownHist)
+		{
+			merged.add(new LootEntry(e.kc + offset, e.items));
+		}
+		if (!merged.isEmpty())
+		{
+			saveHistory(b, merged);
+		}
+		// totals: add up. Shared data from before totals existed has only a loot feed, so
+		// rebuild from that the same way getTotalsMap() would.
+		Map<Integer, ItemTotal> ltot = parseTotals(legacyRaw("totals_" + k));
+		if (ltot.isEmpty())
+		{
+			ltot = totalsFromHistory(parseHistory(legacyRaw("hist_" + k)));
+		}
+		if (!ltot.isEmpty())
+		{
+			for (Map.Entry<Integer, ItemTotal> e : ltot.entrySet())
+			{
+				ItemTotal t = own.get(e.getKey());
+				if (t == null)
+				{
+					own.put(e.getKey(), e.getValue());
+				}
+				else
+				{
+					t.total += e.getValue().total;
+					t.count += e.getValue().count;
+				}
+			}
+			saveTotals(b, own);
+		}
+		// raid sums / counts: add up. The legacy sum is also the base every own raid
+		// snapshot moves up by, so the account's own gaps keep their length.
+		Double lsum = legacyDouble("rsum_" + k);
+		double legacySum = lsum == null ? 0.0 : lsum;
+		if (lsum != null)
+		{
+			pset("rsum_" + k, getRaidSum(b) + lsum);
+		}
+		Integer lcnt = legacyInt("rcnt_" + k);
+		if (lcnt != null)
+		{
+			pset("rcnt_" + k, getRaidCount(b) + lcnt);
+		}
+		for (BossRegistry.Drop d : b.drops)
+		{
+			String dk = k + "_" + dkey(d.name);
+			// unique KC history: legacy first, own shifted onto the merged scale — even when
+			// the shared store never saw this drop, own KCs must still move up with kc_.
+			List<Integer> lukc = parseInts(legacyRaw("ukc_" + dk));
+			List<Integer> oukc = getUniqueKcs(b, d.name);
+			if (!lukc.isEmpty() || (offset > 0 && !oukc.isEmpty()))
+			{
+				List<Integer> all = new ArrayList<>(lukc);
+				for (int kc : oukc)
+				{
+					all.add(kc + offset);
+				}
+				pset("ukc_" + dk, gson.toJson(all));
+			}
+			// pre-tracking count = collection-log total minus tracked obtains. If this account
+			// ran its own collection-log import, that total already covered the legacy
+			// tracked obtains, so subtract them; otherwise take the shared value.
+			Integer lunk = legacyInt("unk_" + dk);
+			Integer ounk = pget("unk_" + dk, Integer.class);
+			if (ounk != null)
+			{
+				setUnknownCount(b, d.name, Math.max(0, ounk - lukc.size()));
+			}
+			else if (lunk != null)
+			{
+				pset("unk_" + dk, lunk);
+			}
+			// expected-unique sums add; the legacy sum is the base own snapshots move up by
+			Double les = legacyDouble("esum_" + dk);
+			double legacyEs = les == null ? 0.0 : les;
+			if (les != null)
+			{
+				pset("esum_" + dk, getEsum(b, d.name) + les);
+			}
+			// Snapshots and import baselines are positions on a timeline. Own ones shift up
+			// by the legacy base so the account's current gap keeps its length; if the
+			// account has none, the shared one is copied as-is.
+			shiftOrCopy("ibase_" + dk, Integer.class, legacyKc);
+			shiftOrCopy("rsnap_" + dk, Double.class, legacySum);
+			shiftOrCopy("esnap_" + dk, Double.class, legacyEs);
+		}
+		pset(LEGACY_DONE + k, true);
+	}
+
+	/** Move an own snapshot up by {@code base}, or copy the shared one when there is none. */
+	private void shiftOrCopy(String key, Class<? extends Number> type, double base)
+	{
+		Number own = pget(key, type);
+		if (own != null)
+		{
+			if (base > 0)
+			{
+				if (type == Integer.class)
+				{
+					pset(key, own.intValue() + (int) base);
+				}
+				else
+				{
+					pset(key, own.doubleValue() + base);
+				}
+			}
+			return;
+		}
+		String lv = legacyRaw(key);
+		if (lv != null)
+		{
+			pset(key, lv);
+		}
+	}
+
+	/** True once this account has imported this boss from the shared store. */
+	boolean legacyImported(BossRegistry.Boss b)
+	{
+		return Boolean.TRUE.equals(pget(LEGACY_DONE + key(b), Boolean.class));
+	}
+
+	private static Map<Integer, ItemTotal> totalsFromHistory(List<LootEntry> hist)
+	{
+		Map<Integer, ItemTotal> m = new LinkedHashMap<>();
+		for (LootEntry e : hist)
+		{
+			if (e.items == null)
+			{
+				continue;
+			}
+			for (LootEntry.Item it : e.items)
+			{
+				if (it.id <= 0)
+				{
+					continue;
+				}
+				ItemTotal t = m.get(it.id);
+				if (t == null)
+				{
+					t = new ItemTotal(it.id, it.name);
+					m.put(it.id, t);
+				}
+				t.total += it.qty;
+				t.count++;
+			}
+		}
+		return m;
+	}
+
+	/** Permanently remove the pre-1.2 shared copy. Per-account data is untouched. */
+	void deleteLegacyData()
+	{
+		for (BossRegistry.Boss b : legacyBosses().keySet())
+		{
+			for (String k : keysFor(b))
+			{
+				legacyUnset(k);
+			}
+		}
+		legacyUnset("last_name");
+	}
+
+	private List<Integer> parseInts(String json)
+	{
 		if (json == null || json.isEmpty())
 		{
 			return new ArrayList<>();
@@ -686,73 +1026,8 @@ public class DropTrackerPlugin extends Plugin
 		}
 	}
 
-	private void addUniqueKc(BossRegistry.Boss b, String item, int kc)
+	private List<LootEntry> parseHistory(String json)
 	{
-		List<Integer> l = getUniqueKcs(b, item);
-		l.add(kc);
-		configManager.setConfiguration(GROUP, "ukc_" + key(b) + "_" + dkey(item), gson.toJson(l));
-	}
-
-	// "obtained before Lucky Log" counts (collection-log import)
-	int getUnknownCount(BossRegistry.Boss b, String item)
-	{
-		Integer v = configManager.getConfiguration(GROUP, "unk_" + key(b) + "_" + dkey(item), Integer.class);
-		return v == null ? 0 : v;
-	}
-
-	void setUnknownCount(BossRegistry.Boss b, String item, int n)
-	{
-		if (n <= 0)
-		{
-			configManager.unsetConfiguration(GROUP, "unk_" + key(b) + "_" + dkey(item));
-		}
-		else
-		{
-			configManager.setConfiguration(GROUP, "unk_" + key(b) + "_" + dkey(item), n);
-		}
-	}
-
-	void importObtained(BossRegistry.Boss b, String item, int collectionLogTotal)
-	{
-		int tracked = getUniqueKcs(b, item).size();
-		int unknown = Math.max(0, collectionLogTotal - tracked);
-		setUnknownCount(b, item, unknown);
-		// Remember the KC at import time: pre-tracking obtains have unknown KCs, so any
-		// dry-streak math for this item can only honestly start counting from here.
-		if (unknown > 0)
-		{
-			configManager.setConfiguration(GROUP, "ibase_" + key(b) + "_" + dkey(item), getKc(b));
-		}
-	}
-
-	/** KC at the time this item's pre-tracking obtains were imported, or -1 if never recorded. */
-	int importBaselineKc(BossRegistry.Boss b, String item)
-	{
-		Integer v = configManager.getConfiguration(GROUP, "ibase_" + key(b) + "_" + dkey(item), Integer.class);
-		return v == null ? -1 : v;
-	}
-
-	void resetBoss(BossRegistry.Boss b)
-	{
-		String k = key(b);
-		configManager.unsetConfiguration(GROUP, "kc_" + k);
-		configManager.unsetConfiguration(GROUP, "hist_" + k);
-		configManager.unsetConfiguration(GROUP, "totals_" + k);
-		configManager.unsetConfiguration(GROUP, "rsum_" + k);
-		configManager.unsetConfiguration(GROUP, "rcnt_" + k);
-		for (BossRegistry.Drop d : b.drops)
-		{
-			configManager.unsetConfiguration(GROUP, "ukc_" + k + "_" + dkey(d.name));
-			configManager.unsetConfiguration(GROUP, "unk_" + k + "_" + dkey(d.name));
-			configManager.unsetConfiguration(GROUP, "rsnap_" + k + "_" + dkey(d.name));
-			configManager.unsetConfiguration(GROUP, "ibase_" + k + "_" + dkey(d.name));
-		}
-	}
-
-	// --- per-kill loot feed history ---
-	List<LootEntry> getHistory(BossRegistry.Boss b)
-	{
-		String json = configManager.getConfiguration(GROUP, "hist_" + key(b), String.class);
 		if (json == null || json.isEmpty())
 		{
 			return new ArrayList<>();
@@ -770,67 +1045,174 @@ public class DropTrackerPlugin extends Plugin
 		}
 	}
 
+	private Map<Integer, ItemTotal> parseTotals(String json)
+	{
+		if (json == null || json.isEmpty())
+		{
+			return new LinkedHashMap<>();
+		}
+		try
+		{
+			Map<Integer, ItemTotal> m = gson.fromJson(json, new TypeToken<Map<Integer, ItemTotal>>()
+			{
+			}.getType());
+			return m == null ? new LinkedHashMap<>() : m;
+		}
+		catch (Exception e)
+		{
+			return new LinkedHashMap<>();
+		}
+	}
+
+	// --- KC ---
+	int getKc(BossRegistry.Boss b)
+	{
+		Integer v = pget("kc_" + key(b), Integer.class);
+		return v == null ? 0 : v;
+	}
+
+	void setKc(BossRegistry.Boss b, int v)
+	{
+		pset("kc_" + key(b), Math.max(0, v));
+	}
+
+	// --- goal + dry ---
+	String getGoal(BossRegistry.Boss b)
+	{
+		return pget("goal_" + key(b), String.class);
+	}
+
+	void setGoal(BossRegistry.Boss b, String drop)
+	{
+		if (drop == null)
+		{
+			punset("goal_" + key(b));
+		}
+		else
+		{
+			pset("goal_" + key(b), drop);
+		}
+	}
+
+	int getLastDropKc(BossRegistry.Boss b, String drop)
+	{
+		List<Integer> kcs = getUniqueKcs(b, drop);
+		return kcs.isEmpty() ? 0 : kcs.get(kcs.size() - 1);
+	}
+
+	/**
+	 * True when the game will never roll this drop for the account again: a pet or a
+	 * one-time unique that is already owned (tracked, or imported from the collection log).
+	 * Nothing "dry" can be said about such an item, so every dry-streak path checks this.
+	 */
+	boolean doneForever(BossRegistry.Boss b, BossRegistry.Drop d)
+	{
+		if (d.repeatable())
+		{
+			return false;
+		}
+		return !getUniqueKcs(b, d.name).isEmpty() || getUnknownCount(b, d.name) > 0;
+	}
+
+	// --- per-unique KC history ---
+	List<Integer> getUniqueKcs(BossRegistry.Boss b, String item)
+	{
+		return parseInts(pget("ukc_" + key(b) + "_" + dkey(item), String.class));
+	}
+
+	private void addUniqueKc(BossRegistry.Boss b, String item, int kc)
+	{
+		List<Integer> l = getUniqueKcs(b, item);
+		l.add(kc);
+		pset("ukc_" + key(b) + "_" + dkey(item), gson.toJson(l));
+	}
+
+	// "obtained before Lucky Log" counts (collection-log import)
+	int getUnknownCount(BossRegistry.Boss b, String item)
+	{
+		Integer v = pget("unk_" + key(b) + "_" + dkey(item), Integer.class);
+		return v == null ? 0 : v;
+	}
+
+	void setUnknownCount(BossRegistry.Boss b, String item, int n)
+	{
+		if (n <= 0)
+		{
+			punset("unk_" + key(b) + "_" + dkey(item));
+		}
+		else
+		{
+			pset("unk_" + key(b) + "_" + dkey(item), n);
+		}
+	}
+
+	void importObtained(BossRegistry.Boss b, String item, int collectionLogTotal)
+	{
+		int tracked = getUniqueKcs(b, item).size();
+		int unknown = Math.max(0, collectionLogTotal - tracked);
+		setUnknownCount(b, item, unknown);
+		// Remember the KC at import time: pre-tracking obtains have unknown KCs, so any
+		// dry-streak math for this item can only honestly start counting from here.
+		if (unknown > 0)
+		{
+			pset("ibase_" + key(b) + "_" + dkey(item), getKc(b));
+		}
+	}
+
+	/** KC at the time this item's pre-tracking obtains were imported, or -1 if never recorded. */
+	int importBaselineKc(BossRegistry.Boss b, String item)
+	{
+		Integer v = pget("ibase_" + key(b) + "_" + dkey(item), Integer.class);
+		return v == null ? -1 : v;
+	}
+
+	void resetBoss(BossRegistry.Boss b)
+	{
+		String k = key(b);
+		punset("kc_" + k);
+		punset("hist_" + k);
+		punset("totals_" + k);
+		punset("rsum_" + k);
+		punset("rcnt_" + k);
+		punset(LEGACY_DONE + k);
+		for (BossRegistry.Drop d : b.drops)
+		{
+			punset("ukc_" + k + "_" + dkey(d.name));
+			punset("unk_" + k + "_" + dkey(d.name));
+			punset("rsnap_" + k + "_" + dkey(d.name));
+			punset("ibase_" + k + "_" + dkey(d.name));
+		}
+	}
+
+	// --- per-kill loot feed history ---
+	List<LootEntry> getHistory(BossRegistry.Boss b)
+	{
+		return parseHistory(pget("hist_" + key(b), String.class));
+	}
+
 	private void saveHistory(BossRegistry.Boss b, List<LootEntry> h)
 	{
 		while (h.size() > HISTORY_CAP)
 		{
 			h.remove(0);
 		}
-		configManager.setConfiguration(GROUP, "hist_" + key(b), gson.toJson(h));
+		pset("hist_" + key(b), gson.toJson(h));
 	}
 
 	// --- all-time totals (uncapped; one entry per distinct item) ---
 	Map<Integer, ItemTotal> getTotalsMap(BossRegistry.Boss b)
 	{
-		String json = configManager.getConfiguration(GROUP, "totals_" + key(b), String.class);
-		Map<Integer, ItemTotal> m = new LinkedHashMap<>();
-		if (json != null && !json.isEmpty())
-		{
-			try
-			{
-				Map<Integer, ItemTotal> parsed = gson.fromJson(json, new TypeToken<Map<Integer, ItemTotal>>()
-				{
-				}.getType());
-				if (parsed != null)
-				{
-					m = parsed;
-				}
-			}
-			catch (Exception ignored)
-			{
-			}
-		}
+		Map<Integer, ItemTotal> m = parseTotals(pget("totals_" + key(b), String.class));
 		if (m.isEmpty())
 		{
-			for (LootEntry e : getHistory(b))
-			{
-				if (e.items == null)
-				{
-					continue;
-				}
-				for (LootEntry.Item it : e.items)
-				{
-					if (it.id <= 0)
-					{
-						continue;
-					}
-					ItemTotal t = m.get(it.id);
-					if (t == null)
-					{
-						t = new ItemTotal(it.id, it.name);
-						m.put(it.id, t);
-					}
-					t.total += it.qty;
-					t.count++;
-				}
-			}
+			m = totalsFromHistory(getHistory(b));
 		}
 		return m;
 	}
 
 	private void saveTotals(BossRegistry.Boss b, Map<Integer, ItemTotal> m)
 	{
-		configManager.setConfiguration(GROUP, "totals_" + key(b), gson.toJson(m));
+		pset("totals_" + key(b), gson.toJson(m));
 	}
 
 	List<ItemTotal> getTotals(BossRegistry.Boss b)
@@ -902,8 +1284,8 @@ public class DropTrackerPlugin extends Plugin
 		{
 			total += addEsum(b, "Dom", 1.0 / DOOM_DOM_RATE[idx]);
 		}
-		configManager.setConfiguration(GROUP, "rsum_" + key(b), getRaidSum(b) + total);
-		configManager.setConfiguration(GROUP, "rcnt_" + key(b), getRaidCount(b) + 1);
+		pset("rsum_" + key(b), getRaidSum(b) + total);
+		pset("rcnt_" + key(b), getRaidCount(b) + 1);
 		if (panel != null)
 		{
 			SwingUtilities.invokeLater(panel::rerender);
@@ -937,8 +1319,8 @@ public class DropTrackerPlugin extends Plugin
 		{
 			addEsum(b, "Smol heredit", 1.0 / 200.0);
 		}
-		configManager.setConfiguration(GROUP, "rsum_" + key(b), getRaidSum(b) + total);
-		configManager.setConfiguration(GROUP, "rcnt_" + key(b), getRaidCount(b) + 1);
+		pset("rsum_" + key(b), getRaidSum(b) + total);
+		pset("rcnt_" + key(b), getRaidCount(b) + 1);
 		if (panel != null)
 		{
 			SwingUtilities.invokeLater(panel::rerender);
@@ -948,19 +1330,19 @@ public class DropTrackerPlugin extends Plugin
 	// per-item expected-unique sums, for bosses whose rates change with depth/wave
 	double getEsum(BossRegistry.Boss b, String item)
 	{
-		Double v = configManager.getConfiguration(GROUP, "esum_" + key(b) + "_" + dkey(item), Double.class);
+		Double v = pget("esum_" + key(b) + "_" + dkey(item), Double.class);
 		return v == null ? 0.0 : v;
 	}
 
 	private double addEsum(BossRegistry.Boss b, String item, double p)
 	{
-		configManager.setConfiguration(GROUP, "esum_" + key(b) + "_" + dkey(item), getEsum(b, item) + p);
+		pset("esum_" + key(b) + "_" + dkey(item), getEsum(b, item) + p);
 		return p;
 	}
 
 	private double getEsnap(BossRegistry.Boss b, String item)
 	{
-		Double v = configManager.getConfiguration(GROUP, "esnap_" + key(b) + "_" + dkey(item), Double.class);
+		Double v = pget("esnap_" + key(b) + "_" + dkey(item), Double.class);
 		return v == null ? 0.0 : v;
 	}
 
@@ -1052,26 +1434,26 @@ public class DropTrackerPlugin extends Plugin
 		{
 			return;
 		}
-		configManager.setConfiguration(GROUP, "rsum_" + key(b), getRaidSum(b) + p);
-		configManager.setConfiguration(GROUP, "rcnt_" + key(b), getRaidCount(b) + 1);
+		pset("rsum_" + key(b), getRaidSum(b) + p);
+		pset("rcnt_" + key(b), getRaidCount(b) + 1);
 		SwingUtilities.invokeLater(() -> panel.onKill(b));
 	}
 
 	double getRaidSum(BossRegistry.Boss b)
 	{
-		Double v = configManager.getConfiguration(GROUP, "rsum_" + key(b), Double.class);
+		Double v = pget("rsum_" + key(b), Double.class);
 		return v == null ? 0.0 : v;
 	}
 
 	int getRaidCount(BossRegistry.Boss b)
 	{
-		Integer v = configManager.getConfiguration(GROUP, "rcnt_" + key(b), Integer.class);
+		Integer v = pget("rcnt_" + key(b), Integer.class);
 		return v == null ? 0 : v;
 	}
 
 	private double getRaidSnap(BossRegistry.Boss b, String item)
 	{
-		Double v = configManager.getConfiguration(GROUP, "rsnap_" + key(b) + "_" + dkey(item), Double.class);
+		Double v = pget("rsnap_" + key(b) + "_" + dkey(item), Double.class);
 		return v == null ? 0.0 : v;
 	}
 
@@ -1079,12 +1461,12 @@ public class DropTrackerPlugin extends Plugin
 	{
 		if (RAID_WEIGHTS.containsKey(b.display.toLowerCase()))
 		{
-			configManager.setConfiguration(GROUP, "rsnap_" + key(b) + "_" + dkey(item), getRaidSum(b));
+			pset("rsnap_" + key(b) + "_" + dkey(item), getRaidSum(b));
 		}
 		double es = getEsum(b, item);
 		if (es > 0)
 		{
-			configManager.setConfiguration(GROUP, "esnap_" + key(b) + "_" + dkey(item), es);
+			pset("esnap_" + key(b) + "_" + dkey(item), es);
 		}
 	}
 
@@ -1267,32 +1649,27 @@ public class DropTrackerPlugin extends Plugin
 		});
 	}
 
+	/** Display name for the account whose data is showing; empty when logged out. */
 	String cardPlayerName()
 	{
-		return cardPlayerName == null ? "" : cardPlayerName;
+		if (cardPlayerName != null)
+		{
+			return cardPlayerName;
+		}
+		// RuneLite records each account's display name against its profile, so the card
+		// names the account the data belongs to even when rendered before a kill lands.
+		String n = configManager.getRSProfileConfiguration(ConfigManager.RSPROFILE_GROUP, ConfigManager.RSPROFILE_DISPLAY_NAME);
+		return n == null ? "" : n;
 	}
 
-	/**
-	 * Capture the logged-in display name when available, persisting the last seen one so
-	 * cards still carry a name if rendered from the login screen or a fresh session.
-	 * Client-thread only.
-	 */
+	/** Capture the logged-in display name when available. Client-thread only. */
 	private void rememberName()
 	{
 		try
 		{
 			if (client.getLocalPlayer() != null && client.getLocalPlayer().getName() != null)
 			{
-				String name = client.getLocalPlayer().getName();
-				if (!name.equals(cardPlayerName))
-				{
-					cardPlayerName = name;
-					configManager.setConfiguration(GROUP, "last_name", name);
-				}
-			}
-			else if (cardPlayerName == null)
-			{
-				cardPlayerName = configManager.getConfiguration(GROUP, "last_name", String.class);
+				cardPlayerName = client.getLocalPlayer().getName();
 			}
 		}
 		catch (Exception ignored)

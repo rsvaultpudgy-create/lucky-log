@@ -369,7 +369,9 @@ class ShareCardRenderer
 				// Items owned only via collection-log import have unknown obtain KCs:
 				// count from the import-time KC if recorded, otherwise skip them —
 				// an item the player already owns must never headline "driest".
-				if (kc > 0)
+				// Pets and one-time uniques already owned have no streak at all: the
+				// game stopped rolling them the moment they dropped.
+				if (kc > 0 && !plugin.doneForever(b, d))
 				{
 					int baseline = plugin.getLastDropKc(b, d.name);
 					int unknown = plugin.getUnknownCount(b, d.name);

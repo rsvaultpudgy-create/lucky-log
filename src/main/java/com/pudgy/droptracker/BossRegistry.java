@@ -43,9 +43,15 @@ public final class BossRegistry
 		public final boolean pet;
 		public final boolean notable;
 		public final String note;
+		/** Stops dropping once obtained (the game no longer rolls it), e.g. the Whisperer's sirenic tablet. */
+		public final boolean once;
+		public Drop(String name, double oneInX, boolean pet, boolean notable, String note, boolean once)
+		{
+			this.name = name; this.oneInX = oneInX; this.pet = pet; this.notable = notable; this.note = note; this.once = once;
+		}
 		public Drop(String name, double oneInX, boolean pet, boolean notable, String note)
 		{
-			this.name = name; this.oneInX = oneInX; this.pet = pet; this.notable = notable; this.note = note;
+			this(name, oneInX, pet, notable, note, false);
 		}
 		public Drop(String name, double oneInX)
 		{
@@ -58,6 +64,16 @@ public final class BossRegistry
 		public static Drop common(String name, double oneInX)
 		{
 			return new Drop(name, oneInX, false, false, null);
+		}
+		/** A notable that the game only ever gives once; dry-streak maths stops the moment it is owned. */
+		public static Drop once(String name, double oneInX)
+		{
+			return new Drop(name, oneInX, false, true, null, true);
+		}
+		/** False for anything that cannot drop again once owned: pets and one-time uniques. */
+		public boolean repeatable()
+		{
+			return !pet && !once;
 		}
 	}
 
@@ -1587,7 +1603,7 @@ public final class BossRegistry
 			Drop.common("Rune javelin", 19251.5)
 		));
 		add(new Boss("The Whisperer",
-			new Drop("Sirenic tablet", 26.2),
+			Drop.once("Sirenic tablet", 26.2),
 			new Drop("Chromium ingot", 170.7),
 			new Drop("Shadow quartz", 209.3),
 			new Drop("Bellator vestige", 512),
@@ -4099,8 +4115,8 @@ public final class BossRegistry
 		));
 
 		add(new Boss("Tempoross",
-			new Drop("Fish barrel", 400),
-			new Drop("Tackle box", 400),
+			Drop.once("Fish barrel", 400),
+			Drop.once("Tackle box", 400),
 			new Drop("Big harpoonfish", 1600),
 			new Drop("Tome of water", 1600),
 			new Drop("Dragon harpoon", 8000),
@@ -4228,8 +4244,8 @@ public final class BossRegistry
 			new Drop("Giantsoul amulet", 16),
 			new Drop("Fire element staff crown", 75),
 			new Drop("Ice element staff crown", 75),
-			new Drop("Mystic vigour prayer scroll", 75),
-			new Drop("Deadeye prayer scroll", 75),
+			Drop.once("Mystic vigour prayer scroll", 75),
+			Drop.once("Deadeye prayer scroll", 75),
 			new Drop("Bran", 3000, true, "Pet"),
 			Drop.common("Mystic fire staff", 13.75),
 			Drop.common("Fire battlestaff", 13.75),
