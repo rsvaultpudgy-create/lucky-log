@@ -4102,7 +4102,7 @@ public final class BossRegistry
 		));
 
 		add(new Boss("Wintertodt",
-			new Drop("Tome of fire", 1000),
+			new Drop("Tome of fire (empty)", 1000),
 			new Drop("Pyromancer hood", 150),
 			new Drop("Pyromancer garb", 150),
 			new Drop("Pyromancer robe", 150),
