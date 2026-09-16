@@ -317,7 +317,7 @@ class ShareCardRenderer
 		BossRegistry.Boss boss;
 		String item;
 		double ratio;
-		int detail; // dry-streak length or the KC gap it landed in
+		int detail; // dry-streak length, or for a hit the KC gap it landed in (kills since the previous one)
 		boolean ongoing; // true when the streak hasn't ended yet
 		double pct; // % of players who would have the drop within that many kills
 	}
@@ -340,7 +340,11 @@ class ShareCardRenderer
 		for (BossRegistry.Boss b : all)
 		{
 			int kc = plugin.getKc(b);
-			if (kc > highestKc)
+			// With imports hidden, a boss Lucky Log has never seen a kill for (numbers from a
+			// collection-log import or Set KC only) stays out of Highest KC and the dry cards;
+			// its tracked gp and per-unique history are empty anyway.
+			boolean eligible = showUnknown || plugin.hasTrackedKills(b);
+			if (eligible && kc > highestKc)
 			{
 				highestKc = kc;
 				highestKcBoss = b;
@@ -371,7 +375,7 @@ class ShareCardRenderer
 				// an item the player already owns must never headline "driest".
 				// Pets and one-time uniques already owned have no streak at all: the
 				// game stopped rolling them the moment they dropped.
-				if (kc > 0 && !plugin.doneForever(b, d))
+				if (eligible && kc > 0 && !plugin.doneForever(b, d))
 				{
 					int baseline = plugin.getLastDropKc(b, d.name);
 					int unknown = plugin.getUnknownCount(b, d.name);
@@ -411,7 +415,7 @@ class ShareCardRenderer
 					}
 					if (d.oneInX >= 20 && (lucky == null || ratio < lucky.ratio))
 					{
-						lucky = highlight(b, d.name, ratio, k, false, pctByNow(d.oneInX, gap));
+						lucky = highlight(b, d.name, ratio, gap, false, pctByNow(d.oneInX, gap));
 					}
 				}
 			}
@@ -451,7 +455,7 @@ class ShareCardRenderer
 				? "%,d and counting · %.1f%% would have it"
 				: "went %,d · %.1f%% would have it", allDry.detail, allDry.pct));
 		paintHighlight(g, 40 + (pw + 17) * 2, py, pw, ph, "LUCKIEST HIT", GREEN, lucky, sprites,
-			lucky == null ? null : String.format("KC %,d · only %.1f%% would have it by then", lucky.detail, lucky.pct));
+			lucky == null ? null : String.format("went %,d · only %.1f%% would have it by then", lucky.detail, lucky.pct));
 
 		// top 5 most profitable bosses
 		g.setFont(bold(17f));

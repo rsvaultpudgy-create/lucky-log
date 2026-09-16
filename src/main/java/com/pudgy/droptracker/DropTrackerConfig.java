@@ -44,8 +44,10 @@ public interface DropTrackerConfig extends Config
 
 	@ConfigItem(
 		keyName = "showUnknownKc",
-		name = "Show pre-Lucky Log drops",
-		description = "Show uniques imported from your collection log that have no recorded kill count (shown as unknown).",
+		name = "Include collection-log imports",
+		description = "Count uniques imported from your collection log (obtained before Lucky Log, KC unknown), "
+			+ "and let bosses you have only imported, never killed with Lucky Log running, "
+			+ "appear as Highest KC or driest on the overview card.",
 		position = 2
 	)
 	default boolean showUnknownKc()

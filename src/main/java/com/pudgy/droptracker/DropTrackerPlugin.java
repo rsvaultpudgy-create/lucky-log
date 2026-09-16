@@ -1184,6 +1184,16 @@ public class DropTrackerPlugin extends Plugin
 		}
 	}
 
+	/**
+	 * True once Lucky Log itself has recorded at least one kill (or reward pull) for this
+	 * boss. False for a boss whose numbers exist only because of a collection-log import
+	 * or a manual Set KC.
+	 */
+	boolean hasTrackedKills(BossRegistry.Boss b)
+	{
+		return getRaidCount(b) > 0 || !getHistory(b).isEmpty();
+	}
+
 	// --- per-kill loot feed history ---
 	List<LootEntry> getHistory(BossRegistry.Boss b)
 	{
