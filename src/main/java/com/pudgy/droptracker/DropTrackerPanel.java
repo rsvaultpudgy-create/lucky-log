@@ -220,6 +220,9 @@ class DropTrackerPanel extends PluginPanel
 	// Shares the threshold with countColor, so a badge that turns blue is also collapsed.
 	private static final int KC_COLLAPSE_AT = 10;
 
+	/** Pseudo-entry at the top of the boss list that opens the skilling-pets view. */
+	static final String SKILL_PETS = "\u2605 Skilling pets";
+
 	private static String countColor(int total)
 	{
 		if (total >= 100)
@@ -501,6 +504,7 @@ class DropTrackerPanel extends PluginPanel
 	{
 		updating = true;
 		bossBox.removeAllItems();
+		bossBox.addItem(SKILL_PETS);
 		for (BossRegistry.Boss b : BossRegistry.all())
 		{
 			bossBox.addItem(b.shortName());
@@ -518,8 +522,22 @@ class DropTrackerPanel extends PluginPanel
 		return s == null ? null : BossRegistry.byLootName((String) s);
 	}
 
+	private boolean skillPetsSelected()
+	{
+		return SKILL_PETS.equals(bossBox.getSelectedItem());
+	}
+
 	private void selectBoss()
 	{
+		if (skillPetsSelected())
+		{
+			updating = true;
+			goalBox.removeAllItems();
+			goalBox.addItem("(none)");
+			updating = false;
+			refresh();
+			return;
+		}
 		BossRegistry.Boss b = current();
 		if (b == null)
 		{
@@ -637,6 +655,10 @@ class DropTrackerPanel extends PluginPanel
 			}
 		}
 		starts.addAll(contains);
+		if (s.isEmpty() || "skilling pets".contains(s) || s.startsWith("pet"))
+		{
+			starts.add(0, SKILL_PETS);
+		}
 		updating = true;
 		bossBox.removeAllItems();
 		for (String d : starts)
@@ -666,6 +688,7 @@ class DropTrackerPanel extends PluginPanel
 		updating = true;
 		searchField.setText("");
 		bossBox.removeAllItems();
+		bossBox.addItem(SKILL_PETS);
 		for (BossRegistry.Boss bb : BossRegistry.all())
 		{
 			bossBox.addItem(bb.shortName());
@@ -683,7 +706,7 @@ class DropTrackerPanel extends PluginPanel
 	/** Account switched or logged out: re-sync the goal dropdown as well as the header/body. */
 	void onAccountChanged()
 	{
-		if (current() != null)
+		if (current() != null || skillPetsSelected())
 		{
 			selectBoss();
 		}
@@ -691,6 +714,11 @@ class DropTrackerPanel extends PluginPanel
 
 	private void refresh()
 	{
+		if (skillPetsSelected())
+		{
+			renderSkillPets();
+			return;
+		}
 		BossRegistry.Boss b = current();
 		if (b == null)
 		{
@@ -736,7 +764,7 @@ class DropTrackerPanel extends PluginPanel
 					.append("<br><font color='#9acd32'>Obtained")
 					.append(last > 0 ? " at " + unitCap(b) + " " + last : " (pre-tracking)")
 					.append("</font><br><font color='#888888'>")
-					.append(gd.pet ? "Pets cannot drop twice." : "This drop cannot be received twice.")
+					.append("This drop cannot be received twice.")
 					.append("</font>");
 			}
 			else if (gd != null)
@@ -805,6 +833,10 @@ class DropTrackerPanel extends PluginPanel
 			boolean collapsed = collapsible && !expandedKcs.contains(kcKey);
 			StringBuilder s = new StringBuilder("<html>")
 				.append(d.name).append("  —  1/").append(fmt(d.oneInX));
+			boolean owned = d.once && plugin.doneForever(b, d);
+			// Pets keep rolling, so "owned" never ends their dry maths; but a pet obtained before
+			// tracking still needs to be claimable so the streak restarts from the current KC.
+			boolean petUnclaimed = d.pet && got.isEmpty() && rawUnknown == 0;
 			if (d.once)
 			{
 				s.append(" <font color='#6f6f6f'>(one-time)</font>");
@@ -813,6 +845,18 @@ class DropTrackerPanel extends PluginPanel
 			{
 				s.append(obtainSuffix(isReward(b) ? "pull " : "KC ", unknown, got, collapsed));
 			}
+			if (d.once)
+			{
+				// Visible affordance: a one-time drop the plugin does not know you own can be
+				// claimed with a click; once owned it says so instead of ever reading as dry.
+				s.append(owned
+					? " <font color='#9acd32'>owned</font>"
+					: " <font color='#a9c9ff'><u>have it?</u></font>");
+			}
+			else if (petUnclaimed)
+			{
+				s.append(" <font color='#a9c9ff'><u>have it?</u></font>");
+			}
 			s.append("</html>");
 			JLabel dropLine = line(s.toString(), d.pet ? new Color(0xFF, 0xD7, 0x00) : Color.WHITE);
 			if (d.pet)
@@ -820,8 +864,27 @@ class DropTrackerPanel extends PluginPanel
 				dropLine.setIcon(starIcon());
 				dropLine.setIconTextGap(4);
 			}
-			dropLine.setComponentPopupMenu(obtainedMenu(b, d, rawUnknown));
-			dropLine.setToolTipText("Right-click to mark this drop as already obtained");
+			if ((d.once && !owned) || petUnclaimed)
+			{
+				dropLine.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+				dropLine.setToolTipText("Click to tell Lucky Log you already have " + d.name);
+				dropLine.addMouseListener(new MouseAdapter()
+				{
+					@Override
+					public void mouseClicked(MouseEvent e)
+					{
+						if (javax.swing.SwingUtilities.isLeftMouseButton(e))
+						{
+							confirmObtained(b, d);
+						}
+					}
+				});
+			}
+			else if ((d.once || d.pet) && rawUnknown > 0)
+			{
+				dropLine.setToolTipText("Right-click to undo marking " + d.name + " as obtained");
+				dropLine.setComponentPopupMenu(undoObtainedMenu(b, d));
+			}
 			if (collapsible)
 			{
 				dropLine.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
@@ -856,34 +919,195 @@ class DropTrackerPanel extends PluginPanel
 	}
 
 	/**
-	 * Right-click menu for a notable drop: lets a player who never imports the collection log
-	 * tell the plugin they already own an item. A one-time unique or pet marked this way is
-	 * doneForever and disappears from every dry-streak card.
+	 * Left-click on an unowned one-time drop or unclaimed pet. Names the item and asks first, because a
+	 * wrong answer silently removes that item from every dry-streak card.
 	 */
-	private javax.swing.JPopupMenu obtainedMenu(BossRegistry.Boss b, BossRegistry.Drop d, int unknown)
+	private void confirmObtained(BossRegistry.Boss b, BossRegistry.Drop d)
 	{
-		javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
-		javax.swing.JMenuItem mark = new javax.swing.JMenuItem(
-			d.repeatable() ? "Mark as obtained (+1, untracked KC)" : "Mark as obtained (one-time: stops dry maths)");
-		mark.setEnabled(plugin.hasProfile());
-		mark.addActionListener(e ->
+		if (!plugin.hasProfile())
+		{
+			JOptionPane.showMessageDialog(this, "Log in first so this is saved to the right account.",
+				"Lucky Log", JOptionPane.INFORMATION_MESSAGE);
+			return;
+		}
+		String effect = d.pet
+			? "Pets keep rolling, so the dry count restarts from your current "
+				+ unit(b) + " (the plugin cannot know when you got it)."
+			: "It is a one-time drop, so Lucky Log will stop counting it as dry.";
+		int ok = JOptionPane.showConfirmDialog(this,
+			"<html>Do you already have <b>" + d.name + "</b>?<br><br>" + effect
+				+ "<br>Right-click the row later to undo.</html>",
+			"Mark " + d.name + " as obtained", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+		if (ok == JOptionPane.YES_OPTION)
 		{
 			plugin.markObtained(b, d.name);
 			refresh();
-		});
-		menu.add(mark);
-		if (unknown > 0)
-		{
-			javax.swing.JMenuItem clear = new javax.swing.JMenuItem("Clear untracked obtains (" + unknown + ")");
-			clear.setEnabled(plugin.hasProfile());
-			clear.addActionListener(e ->
-			{
-				plugin.clearObtained(b, d.name);
-				refresh();
-			});
-			menu.add(clear);
 		}
+	}
+
+	/** Right-click on an owned one-time drop whose ownership came from a mark or col-log import. */
+	private javax.swing.JPopupMenu undoObtainedMenu(BossRegistry.Boss b, BossRegistry.Drop d)
+	{
+		javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+		javax.swing.JMenuItem undo = new javax.swing.JMenuItem("Undo: I do not have " + d.name);
+		undo.setEnabled(plugin.hasProfile());
+		undo.addActionListener(e ->
+		{
+			plugin.clearObtained(b, d.name);
+			refresh();
+		});
+		menu.add(undo);
 		return menu;
+	}
+
+	/** The skilling-pets view: one block per pet with its running odds and a claim/undo control. */
+	private void renderSkillPets()
+	{
+		boolean loggedIn = plugin.hasProfile();
+		setKcBtn.setEnabled(false);
+		goalBox.setEnabled(false);
+		setKcBtn.setText("Set KC");
+		imageLabel.setIcon(null);
+		long rolls = 0;
+		int owned = 0;
+		for (SkillPetRegistry.Pet p : SkillPetRegistry.PETS)
+		{
+			DropTrackerPlugin.SkillPetState st = plugin.skillPetState(p);
+			rolls += st.n;
+			owned += st.got > 0 ? 1 : 0;
+		}
+		DropTrackerPlugin.AnyPetState any = plugin.anyPetState();
+		StringBuilder h = new StringBuilder("<html><body style='width: 124px'>");
+		if (!loggedIn)
+		{
+			h.append("<font color='#888888'>Log in to see this account's skilling pets.</font><br><br>");
+		}
+		h.append("Rolls seen: ").append(String.format("%,d", rolls))
+			.append("<br>Pets owned: ").append(owned).append(" / ").append(SkillPetRegistry.PETS.size());
+		if (any.n > 0)
+		{
+			h.append("<br><font color='#9acd32'>").append(String.format("%.1f%%", Math.min(99.9, 100.0 * (1.0 - Math.exp(any.lnq)))))
+				.append(" would have any pet ").append(any.lastPet != null ? "since " + any.lastPet : "by now").append("</font>");
+		}
+		h.append("<br><br><font color='#888888'>Every chop, catch, ore, lap, pickpocket, check-health, "
+			+ "essence and sort is a roll at the wiki rate for your base level. Counting started when this version was installed.</font>");
+		h.append("</body></html>");
+		header.setText(h.toString());
+		body.removeAll();
+		for (SkillPetRegistry.Pet p : SkillPetRegistry.PETS)
+		{
+			DropTrackerPlugin.SkillPetState st = plugin.skillPetState(p);
+			double pct = st.sn > 0 ? Math.min(99.9, 100.0 * (1.0 - Math.exp(st.slnq))) : 0;
+			StringBuilder s = new StringBuilder("<html>");
+			s.append(st.got > 0 ? "<font color='#ffd700'>" : "<font color='#ffffff'>").append(p.name).append("</font>");
+			s.append(" <font color='#6f6f6f'>").append(skillLabel(p)).append("</font>");
+			if (st.got > 0)
+			{
+				s.append(" <font color='#9acd32'>owned").append(st.got > 1 ? " ×" + st.got : "").append("</font>");
+			}
+			else if (st.n == 0)
+			{
+				s.append(" <font color='#a9c9ff'><u>have it?</u></font>");
+			}
+			s.append("<br>&nbsp;&nbsp;");
+			if (st.n == 0)
+			{
+				s.append("<font color='#888888'>no rolls seen yet</font>");
+			}
+			else
+			{
+				s.append("<font color='#aaaaaa'>").append(String.format("%,d", st.sn)).append(" rolls")
+					.append(st.got > 0 ? " since pet" : "").append(" · </font>")
+					.append(pct >= 63.2 ? "<font color='#e07a5f'>" : "<font color='#9acd32'>")
+					.append(String.format("%.1f%%", pct)).append(" would have it</font>");
+				if (st.last != null)
+				{
+					s.append("<br>&nbsp;&nbsp;<font color='#6f6f6f'>last: ").append(st.last).append("</font>");
+				}
+				if (st.got == 0)
+				{
+					s.append(" <font color='#a9c9ff'><u>have it?</u></font>");
+				}
+			}
+			s.append("</html>");
+			JLabel row = line(s.toString(), Color.WHITE);
+			BufferedImage petImg = plugin.petImage(p);
+			row.setIcon(petImg != null ? new ImageIcon(fitImage(petImg, 30, 30)) : starIcon());
+			row.setIconTextGap(6);
+			row.setBorder(BorderFactory.createEmptyBorder(3, 0, 3, 0));
+			javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+			if (st.got == 0)
+			{
+				row.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+				row.setToolTipText("Click to tell Lucky Log you already have " + p.name);
+				row.addMouseListener(new MouseAdapter()
+				{
+					@Override
+					public void mouseClicked(MouseEvent e)
+					{
+						if (javax.swing.SwingUtilities.isLeftMouseButton(e))
+						{
+							confirmSkillPet(p);
+						}
+					}
+				});
+			}
+			else
+			{
+				javax.swing.JMenuItem undo = new javax.swing.JMenuItem("Undo: I do not have " + p.name);
+				undo.setEnabled(loggedIn);
+				undo.addActionListener(e ->
+				{
+					plugin.claimSkillPet(p, false);
+					refresh();
+				});
+				menu.add(undo);
+			}
+			javax.swing.JMenuItem reset = new javax.swing.JMenuItem("Reset " + p.name + " rolls…");
+			reset.setEnabled(loggedIn);
+			reset.addActionListener(e ->
+			{
+				int ok = JOptionPane.showConfirmDialog(this,
+					"<html>Clear every roll and pet recorded for <b>" + p.name + "</b>? This cannot be undone.</html>",
+					"Reset " + p.name, JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+				if (ok == JOptionPane.YES_OPTION)
+				{
+					plugin.resetSkillPet(p);
+					refresh();
+				}
+			});
+			menu.add(reset);
+			row.setComponentPopupMenu(menu);
+			body.add(row);
+		}
+		body.revalidate();
+		body.repaint();
+	}
+
+	private static String skillLabel(SkillPetRegistry.Pet p)
+	{
+		String n = p.skill.getName();
+		return n.substring(0, 1).toUpperCase() + n.substring(1).toLowerCase();
+	}
+
+	private void confirmSkillPet(SkillPetRegistry.Pet p)
+	{
+		if (!plugin.hasProfile())
+		{
+			JOptionPane.showMessageDialog(this, "Log in first so this is saved to the right account.",
+				"Lucky Log", JOptionPane.INFORMATION_MESSAGE);
+			return;
+		}
+		int ok = JOptionPane.showConfirmDialog(this,
+			"<html>Do you already have <b>" + p.name + "</b>?<br><br>"
+				+ "Skilling pets keep rolling, so the odds keep counting from the rolls seen so far.<br>"
+				+ "Right-click the row later to undo.</html>",
+			"Mark " + p.name + " as obtained", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+		if (ok == JOptionPane.YES_OPTION)
+		{
+			plugin.claimSkillPet(p, true);
+			refresh();
+		}
 	}
 
 	private void renderRevenantOdds()
@@ -1041,11 +1265,23 @@ class DropTrackerPanel extends PluginPanel
 		javax.swing.JMenuItem saveAll = new javax.swing.JMenuItem("Save overview card as PNG");
 		saveAll.addActionListener(e -> makeCard(null, true));
 		menu.add(saveAll);
+		menu.addSeparator();
+		javax.swing.JMenuItem copyPets = new javax.swing.JMenuItem("Copy skilling pets card");
+		copyPets.addActionListener(e -> makeCard(null, false, true));
+		menu.add(copyPets);
+		javax.swing.JMenuItem savePets = new javax.swing.JMenuItem("Save skilling pets card as PNG");
+		savePets.addActionListener(e -> makeCard(null, true, true));
+		menu.add(savePets);
 		menu.show(shareBtn, 0, shareBtn.getHeight());
 	}
 
 	/** boss == null renders the overview card; save == false copies to the clipboard. */
 	private void makeCard(BossRegistry.Boss boss, boolean save)
+	{
+		makeCard(boss, save, false);
+	}
+
+	private void makeCard(BossRegistry.Boss boss, boolean save, boolean skillPets)
 	{
 		shareBtn.setEnabled(false);
 		shareBtn.setText("Rendering…");
@@ -1055,7 +1291,8 @@ class DropTrackerPanel extends PluginPanel
 				BufferedImage card = null;
 				try
 				{
-					card = boss != null ? cardRenderer.renderBossCard(boss) : cardRenderer.renderOverviewCard();
+					card = skillPets ? cardRenderer.renderSkillPetsCard()
+						: boss != null ? cardRenderer.renderBossCard(boss) : cardRenderer.renderOverviewCard();
 				}
 				catch (Exception ex)
 				{

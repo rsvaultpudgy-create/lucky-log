@@ -314,7 +314,7 @@ public class LegacyImportTest
 	}
 
 	@Test
-	public void oneTimeDropsAndPetsStopBeingDryOnceOwned()
+	public void oneTimeDropsStopBeingDryOnceOwnedButPetsKeepRolling()
 	{
 		BossRegistry.Boss whisp = BossRegistry.byLootName("The Whisperer");
 		BossRegistry.Drop tablet = null, staff = null, wisp = null;
@@ -336,7 +336,8 @@ public class LegacyImportTest
 		assertTrue(tablet.once);
 		assertFalse(tablet.repeatable());
 		assertTrue(staff.repeatable());
-		assertFalse(wisp.repeatable());
+		// pets re-roll after the first ("you would have been followed"), so they are never "done"
+		assertTrue(wisp.repeatable());
 		// nothing owned yet: all three are legitimately dry
 		assertFalse(p.doneForever(whisp, tablet));
 		assertFalse(p.doneForever(whisp, wisp));
@@ -346,7 +347,7 @@ public class LegacyImportTest
 		p.profile.put("unk_the_whisperer_wisp", "1");
 		assertTrue(p.doneForever(whisp, tablet));
 		assertFalse(p.doneForever(whisp, staff));
-		assertTrue(p.doneForever(whisp, wisp));
+		assertFalse(p.doneForever(whisp, wisp));
 	}
 
 	@Test

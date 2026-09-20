@@ -344,7 +344,8 @@ class ShareCardRenderer
 			// collection-log import or Set KC only) stays out of Highest KC and the dry cards;
 			// its tracked gp and per-unique history are empty anyway.
 			boolean eligible = showUnknown || plugin.hasTrackedKills(b);
-			if (eligible && kc > highestKc)
+			// Salvage is sorted by the thousand; it would sit on Highest KC forever.
+			if (eligible && kc > highestKc && !BossRegistry.isSalvage(b))
 			{
 				highestKc = kc;
 				highestKcBoss = b;
@@ -593,6 +594,147 @@ class ShareCardRenderer
 		g.setFont(bold(18f));
 		g.setColor(accent);
 		drawTruncated(g, detail, x + 18, y + 120, w - 36);
+	}
+
+	// =========================================================================
+	// Skilling pets card
+	// =========================================================================
+
+	/** One row per skilling pet: rolls seen, and how many players would have it by now. */
+	BufferedImage renderSkillPetsCard()
+	{
+		List<SkillPetRegistry.Pet> pets = SkillPetRegistry.PETS;
+		Set<Integer> ids = new LinkedHashSet<>();
+		for (SkillPetRegistry.Pet p : pets)
+		{
+			if (plugin.petImage(p) == null)
+			{
+				int id = plugin.iconId(p.name);
+				if (id > 0)
+				{
+					ids.add(id);
+				}
+			}
+		}
+		Map<Integer, BufferedImage> sprites = ids.isEmpty() ? new HashMap<>() : loadSprites(ids);
+
+		long rolls = 0;
+		int owned = 0;
+		for (SkillPetRegistry.Pet p : pets)
+		{
+			DropTrackerPlugin.SkillPetState st = plugin.skillPetState(p);
+			rolls += st.n;
+			owned += st.got > 0 ? 1 : 0;
+		}
+		DropTrackerPlugin.AnyPetState any = plugin.anyPetState();
+
+		BufferedImage img = new BufferedImage(W, H, BufferedImage.TYPE_INT_RGB);
+		Graphics2D g = img.createGraphics();
+		paintBase(g);
+		paintHeader(g, "SKILLING PETS");
+
+		int bx = 40;
+		bx = statBlock(g, bx, 116, "PET ROLLS OBSERVED", String.format("%,d", rolls), CREAM);
+		bx = statBlock(g, bx, 116, "PETS OWNED", owned + " / " + pets.size(), owned > 0 ? GREEN : CREAM);
+		double anyPct = Math.min(99.9, 100.0 * (1.0 - Math.exp(any.lnq)));
+		String anyLabel = any.lastPet != null ? "ANY PET SINCE " + any.lastPet.toUpperCase() : "ANY PET BY NOW";
+		statBlock(g, bx, 116, anyLabel, any.n > 0 ? String.format("%.1f%%", anyPct) : "—",
+			any.n > 0 ? fadeWhiteToGreen(anyPct / 100.0) : CREAM);
+
+		// column headers
+		int top = 186;
+		g.setFont(bold(13f));
+		g.setColor(GREY);
+		g.drawString("PET", 96, top);
+		g.drawString("ROLLS", 470, top);
+		g.drawString("WOULD HAVE IT BY NOW", 600, top);
+		drawRight(g, "STATUS", W - 56, top);
+		g.setColor(PANEL_LINE);
+		g.drawLine(40, top + 8, W - 40, top + 8);
+
+		int rowH = 43;
+		int y0 = top + 16;
+		for (int i = 0; i < pets.size(); i++)
+		{
+			SkillPetRegistry.Pet p = pets.get(i);
+			DropTrackerPlugin.SkillPetState st = plugin.skillPetState(p);
+			int y = y0 + i * rowH;
+			if (i % 2 == 0)
+			{
+				g.setColor(new Color(255, 255, 255, 8));
+				g.fillRoundRect(40, y, W - 80, rowH - 4, 8, 8);
+			}
+			BufferedImage sp = plugin.petImage(p);
+			if (sp == null)
+			{
+				sp = sprites.get(plugin.iconId(p.name));
+			}
+			if (sp != null)
+			{
+				drawFitted(g, sp, 48, y + 2, 40, 38);
+			}
+			g.setFont(bold(17f));
+			g.setColor(st.got > 0 ? PET_GOLD : CREAM);
+			g.drawString(p.name, 96, y + 21);
+			g.setFont(plain(12f));
+			g.setColor(GREY);
+			String sub = skillName(p) + " · " + (st.last != null ? "last: " + st.last : p.source);
+			drawTruncated(g, sub, 96, y + 37, 360);
+
+			g.setFont(bold(17f));
+			g.setColor(st.n > 0 ? CREAM : GREY);
+			g.drawString(st.n > 0 ? String.format("%,d", st.sn) : "—", 470, y + 27);
+
+			// probability bar: rolls since the last pet
+			double pct = st.sn > 0 ? Math.min(99.9, 100.0 * (1.0 - Math.exp(st.slnq))) : 0;
+			int barX = 600;
+			int barW = 300;
+			g.setColor(new Color(255, 255, 255, 18));
+			g.fillRoundRect(barX, y + 12, barW, 16, 8, 8);
+			if (st.sn > 0)
+			{
+				g.setColor(pct >= 63.2 ? DRY_RED : fadeWhiteToGreen(pct / 100.0));
+				g.fillRoundRect(barX, y + 12, Math.max(6, (int) (barW * pct / 100.0)), 16, 8, 8);
+				g.setFont(bold(15f));
+				g.setColor(CREAM);
+				g.drawString(String.format("%.1f%%", pct), barX + barW + 12, y + 26);
+			}
+
+			g.setFont(bold(15f));
+			String status;
+			Color sc;
+			if (st.got > 0)
+			{
+				status = st.got == 1 ? "owned" : "owned ×" + st.got;
+				sc = GREEN;
+			}
+			else if (st.n == 0)
+			{
+				status = "no rolls yet";
+				sc = GREY;
+			}
+			else
+			{
+				status = "dry";
+				sc = pct >= 63.2 ? DRY_RED : GREY;
+			}
+			g.setColor(sc);
+			drawRight(g, status, W - 56, y + 26);
+		}
+
+		g.setFont(plain(12f));
+		g.setColor(GREY);
+		g.drawString("Rolls are counted from xp drops since Lucky Log started watching; rates use base level, per the wiki.", 40, 619);
+
+		paintFooter(g);
+		g.dispose();
+		return img;
+	}
+
+	private static String skillName(SkillPetRegistry.Pet p)
+	{
+		String n = p.skill.getName();
+		return n.substring(0, 1).toUpperCase() + n.substring(1).toLowerCase();
 	}
 
 	// =========================================================================

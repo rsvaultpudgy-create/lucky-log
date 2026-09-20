@@ -28,6 +28,7 @@ public final class CardPreview
 		BossRegistry.Boss zulrah = BossRegistry.byLootName("Zulrah");
 		ImageIO.write(r.renderBossCard(zulrah), "png", new File(args.length > 0 ? args[0] : "boss_card.png"));
 		ImageIO.write(r.renderOverviewCard(), "png", new File(args.length > 1 ? args[1] : "overview_card.png"));
+		ImageIO.write(r.renderSkillPetsCard(), "png", new File(args.length > 2 ? args[2] : "skill_pets_card.png"));
 		System.out.println("done");
 	}
 
@@ -107,6 +108,50 @@ public final class CardPreview
 	/** Overrides every data accessor the renderer touches; never hits injected fields. */
 	static final class FakePlugin extends DropTrackerPlugin
 	{
+		private final Map<String, SkillPetState> spets = new HashMap<>();
+
+		@Override
+		AnyPetState anyPetState()
+		{
+			AnyPetState a = new AnyPetState();
+			a.n = 59410;
+			a.lnq = 3200 * Math.log(1 - 1.0 / 79768) + 41230 * Math.log(1 - 1.0 / 142538) + 9000 * Math.log(1 - 1.0 / 96700) + 3100 * Math.log(1 - 1.0 / 32730) + 2880 * Math.log(1 - 1.0 / 800000);
+			a.lastPet = "Heron";
+			return a;
+		}
+
+		@Override
+		SkillPetState skillPetState(SkillPetRegistry.Pet pet)
+		{
+			SkillPetState st = spets.get(pet.key);
+			if (st == null)
+			{
+				st = new SkillPetState();
+				if (pet == SkillPetRegistry.BEAVER)
+				{
+					st.n = 41230; st.sn = 41230; st.lnq = st.slnq = 41230 * Math.log(1 - 1.0 / 142538); st.last = "Yew";
+				}
+				else if (pet == SkillPetRegistry.HERON)
+				{
+					st.n = 120400; st.sn = 3200; st.got = 1; st.nAtGot = 117200; st.lnq = 120400 * Math.log(1 - 1.0 / 79768); st.slnq = 3200 * Math.log(1 - 1.0 / 79768); st.last = "Shark";
+				}
+				else if (pet == SkillPetRegistry.SOUP)
+				{
+					st.n = 2880; st.sn = 2880; st.lnq = st.slnq = 2880 * Math.log(1 - 1.0 / 800000); st.last = "Salvage sorting";
+				}
+				else if (pet == SkillPetRegistry.ROCKY)
+				{
+					st.n = 9000; st.sn = 9000; st.lnq = st.slnq = 9000 * Math.log(1 - 1.0 / 96700); st.last = "Elf";
+				}
+				else if (pet == SkillPetRegistry.GIANT_SQUIRREL)
+				{
+					st.n = 3100; st.sn = 3100; st.lnq = st.slnq = 3100 * Math.log(1 - 1.0 / 32730); st.last = "Seers' Village rooftop";
+				}
+				spets.put(pet.key, st);
+			}
+			return st;
+		}
+
 		private final Map<String, Integer> kcs = new LinkedHashMap<>();
 		private final Map<String, List<Integer>> gotten = new LinkedHashMap<>();
 		private final Map<String, Long> prices = new HashMap<>();

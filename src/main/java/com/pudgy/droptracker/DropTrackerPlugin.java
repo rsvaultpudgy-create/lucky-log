@@ -42,6 +42,19 @@ import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.ItemComposition;
 import net.runelite.api.events.ChatMessage;
+import net.runelite.api.GameState;
+import net.runelite.api.InventoryID;
+import net.runelite.api.Item;
+import net.runelite.api.ItemContainer;
+import net.runelite.api.Skill;
+import net.runelite.api.coords.WorldPoint;
+import net.runelite.api.events.GameStateChanged;
+import net.runelite.api.events.GameTick;
+import net.runelite.api.events.StatChanged;
+import net.runelite.api.events.MenuOptionClicked;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.EnumMap;
 import net.runelite.api.ScriptID;
 import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.widgets.ComponentID;
@@ -1101,8 +1114,9 @@ public class DropTrackerPlugin extends Plugin
 	}
 
 	/**
-	 * True when the game will never roll this drop for the account again: a pet or a
-	 * one-time unique that is already owned (tracked, or imported from the collection log).
+	 * True when the game will never roll this drop for the account again: a one-time
+	 * unique that is already owned (tracked, imported from the collection log, or marked
+	 * by hand). Pets are not in this set; they re-roll as "would have been followed".
 	 * Nothing "dry" can be said about such an item, so every dry-streak path checks this.
 	 */
 	boolean doneForever(BossRegistry.Boss b, BossRegistry.Drop d)
@@ -1148,7 +1162,8 @@ public class DropTrackerPlugin extends Plugin
 
 	/**
 	 * Manual "I already have this" for users who never import the collection log. Adds one
-	 * untracked obtain, so a one-time unique or pet becomes doneForever and leaves the dry cards.
+	 * untracked obtain, so a one-time unique becomes doneForever and leaves the dry cards.
+	 * The panel only exposes this for one-time drops.
 	 */
 	void markObtained(BossRegistry.Boss b, String item)
 	{
@@ -1182,6 +1197,414 @@ public class DropTrackerPlugin extends Plugin
 	{
 		Integer v = pget("ibase_" + key(b) + "_" + dkey(item), Integer.class);
 		return v == null ? -1 : v;
+	}
+
+	// =========================================================================
+	// Skilling pets: every rolling action is recognised from its xp drop and folded into a
+	// running "would have it by now" probability per pet. See SkillPetRegistry.
+	// =========================================================================
+
+	/** Per-pet running totals, stored as JSON under spet_<pet>. */
+	static final class SkillPetState
+	{
+		int n;          // rolls observed, all time
+		double lnq;     // sum of ln(1 - p) over those rolls (P(no pet) = e^lnq)
+		int sn;         // rolls since the last pet
+		double slnq;    // same sum, since the last pet
+		int got;        // pets obtained (tracked, or claimed by the player)
+		int nAtGot;     // n when the last tracked pet landed
+		String last;    // label of the last recognised action
+	}
+
+	/** Rolls across every skill since the last skilling pet Lucky Log itself saw land. */
+	static final class AnyPetState
+	{
+		int n;
+		double lnq;
+		String lastPet;   // null until Lucky Log has seen one
+	}
+
+	AnyPetState anyPetState()
+	{
+		String raw = pget("spet_any", String.class);
+		if (raw != null)
+		{
+			try
+			{
+				AnyPetState st = gson.fromJson(raw, AnyPetState.class);
+				if (st != null)
+				{
+					return st;
+				}
+			}
+			catch (Exception ignored)
+			{
+			}
+		}
+		return new AnyPetState();
+	}
+
+	private final Map<Skill, Integer> lastSkillXp = new EnumMap<>(Skill.class);
+	private int essencePrevTick;
+	private int pendingRcXp;
+	private int pendingRcRegion;
+	/** xp drops seen this tick, resolved on GameTick once the inventory shows what was gained. */
+	private final List<PendingXp> pendingXp = new ArrayList<>();
+	private final Map<Integer, Integer> invPrevTick = new java.util.HashMap<>();
+	private String lastThieveTarget;
+
+	private static final class PendingXp
+	{
+		SkillPetRegistry.Pet pet;
+		int delta;
+		int region;
+		WorldPoint loc;
+		int level;
+		boolean has200m;
+	}
+	private SkillPetRegistry.Pet lastRollPet;
+	private int lastRollTick = -100;
+
+	@Subscribe
+	public void onGameStateChanged(GameStateChanged e)
+	{
+		if (e.getGameState() == GameState.LOGGING_IN || e.getGameState() == GameState.HOPPING
+			|| e.getGameState() == GameState.LOGIN_SCREEN)
+		{
+			// the first StatChanged after a login is the baseline, never a roll
+			lastSkillXp.clear();
+			pendingRcXp = 0;
+			pendingXp.clear();
+		}
+	}
+
+	@Subscribe
+	public void onStatChanged(StatChanged e)
+	{
+		Skill s = e.getSkill();
+		Integer prev = lastSkillXp.put(s, e.getXp());
+		if (prev == null)
+		{
+			return;
+		}
+		int delta = e.getXp() - prev;
+		if (delta <= 0 || !hasProfile())
+		{
+			return;
+		}
+		SkillPetRegistry.Pet pet = SkillPetRegistry.petFor(s);
+		if (pet == null)
+		{
+			return;
+		}
+		try
+		{
+			int region = currentRegion();
+			WorldPoint loc = client.getLocalPlayer() == null ? null
+				: WorldPoint.fromLocalInstance(client, client.getLocalPlayer().getLocalLocation());
+			if (s == Skill.RUNECRAFT)
+			{
+				// rolled per essence, and the essence count is only reliable a tick later
+				if (region != SkillPetRegistry.REGION_GOTR)
+				{
+					pendingRcXp += delta;
+					pendingRcRegion = region;
+				}
+				return;
+			}
+			PendingXp px = new PendingXp();
+			px.pet = pet;
+			px.delta = delta;
+			px.region = region;
+			px.loc = loc;
+			px.level = e.getLevel();
+			px.has200m = client.getSkillExperience(s) >= 200_000_000;
+			pendingXp.add(px);
+		}
+		catch (Exception ex)
+		{
+			log.debug("skill pet roll failed", ex);
+		}
+	}
+
+	@Subscribe
+	public void onMenuOptionClicked(MenuOptionClicked e)
+	{
+		String opt = e.getMenuOption();
+		if (opt == null)
+		{
+			return;
+		}
+		// Pickpocket <npc>, Steal-from <stall>, Search <chest>: remembered so same-xp targets can be told apart
+		if (opt.equals("Pickpocket") || opt.equals("Steal-from") || opt.equals("Search"))
+		{
+			lastThieveTarget = Text.removeTags(e.getMenuTarget());
+		}
+	}
+
+	@Subscribe
+	public void onGameTick(GameTick t)
+	{
+		if (!pendingXp.isEmpty())
+		{
+			Set<String> hints = gainedItemNames();
+			if (lastThieveTarget != null)
+			{
+				hints.add(lastThieveTarget);
+			}
+			for (PendingXp px : pendingXp)
+			{
+				try
+				{
+					skillXp(px.pet, px.delta, px.region, px.loc, px.level, px.has200m, hints);
+				}
+				catch (Exception ex)
+				{
+					log.debug("skill pet roll failed", ex);
+				}
+			}
+			pendingXp.clear();
+		}
+		snapshotInventory();
+		int ess = countEssence();
+		if (pendingRcXp > 0 && hasProfile())
+		{
+			int used = Math.max(1, essencePrevTick - ess);
+			double base = pendingRcRegion == SkillPetRegistry.REGION_BLOOD_ALTAR ? SkillPetRegistry.RC_BLOOD
+				: pendingRcRegion == SkillPetRegistry.REGION_SOUL_ALTAR ? SkillPetRegistry.RC_SOUL
+				: pendingRcRegion == SkillPetRegistry.REGION_OURANIA ? SkillPetRegistry.RC_OURANIA
+				: SkillPetRegistry.RC_BASE;
+			String label = pendingRcRegion == SkillPetRegistry.REGION_BLOOD_ALTAR ? "Blood runes"
+				: pendingRcRegion == SkillPetRegistry.REGION_SOUL_ALTAR ? "Soul runes"
+				: pendingRcRegion == SkillPetRegistry.REGION_OURANIA ? "Ourania altar" : "Runecrafting";
+			double p = SkillPetRegistry.chance(base, false, client.getRealSkillLevel(Skill.RUNECRAFT),
+				client.getSkillExperience(Skill.RUNECRAFT) >= 200_000_000);
+			recordSkillRolls(SkillPetRegistry.RIFT_GUARDIAN, label, p, used, client.getTickCount());
+			pendingRcXp = 0;
+		}
+		essencePrevTick = ess;
+	}
+
+	private static final int[] ESSENCE_IDS = {7936, 1436, 24704, 7938}; // pure, rune, daeyalt, dark fragments
+
+	private int countEssence()
+	{
+		ItemContainer inv = client.getItemContainer(InventoryID.INVENTORY);
+		if (inv == null)
+		{
+			return 0;
+		}
+		int n = 0;
+		for (Item it : inv.getItems())
+		{
+			for (int id : ESSENCE_IDS)
+			{
+				if (it.getId() == id)
+				{
+					n += it.getQuantity();
+				}
+			}
+		}
+		return n;
+	}
+
+	/** Names of items whose inventory quantity rose since the previous tick (lower case). */
+	private Set<String> gainedItemNames()
+	{
+		Set<String> out = new HashSet<>();
+		ItemContainer inv = client.getItemContainer(InventoryID.INVENTORY);
+		if (inv == null)
+		{
+			return out;
+		}
+		Map<Integer, Integer> now = new java.util.HashMap<>();
+		for (Item it : inv.getItems())
+		{
+			if (it.getId() > 0)
+			{
+				now.merge(it.getId(), it.getQuantity(), Integer::sum);
+			}
+		}
+		for (Map.Entry<Integer, Integer> e : now.entrySet())
+		{
+			int before = invPrevTick.getOrDefault(e.getKey(), 0);
+			if (e.getValue() > before)
+			{
+				try
+				{
+					out.add(itemManager.getItemComposition(e.getKey()).getName().toLowerCase());
+				}
+				catch (Exception ignored)
+				{
+				}
+			}
+		}
+		return out;
+	}
+
+	private void snapshotInventory()
+	{
+		invPrevTick.clear();
+		ItemContainer inv = client.getItemContainer(InventoryID.INVENTORY);
+		if (inv == null)
+		{
+			return;
+		}
+		for (Item it : inv.getItems())
+		{
+			if (it.getId() > 0)
+			{
+				invPrevTick.merge(it.getId(), it.getQuantity(), Integer::sum);
+			}
+		}
+	}
+
+	private int currentRegion()
+	{
+		if (client.getLocalPlayer() == null)
+		{
+			return -1;
+		}
+		WorldPoint wp = WorldPoint.fromLocalInstance(client, client.getLocalPlayer().getLocalLocation());
+		return wp == null ? -1 : wp.getRegionID();
+	}
+
+	/**
+	 * One xp drop in a skilling-pet skill (not Runecraft). Package-private so tests can drive
+	 * it without a client. Returns the number of rolls recorded.
+	 */
+	int skillXp(SkillPetRegistry.Pet pet, int delta, int region, WorldPoint loc, int baseLevel, boolean has200m)
+	{
+		return skillXp(pet, delta, region, loc, baseLevel, has200m, null);
+	}
+
+	int skillXp(SkillPetRegistry.Pet pet, int delta, int region, WorldPoint loc, int baseLevel, boolean has200m,
+		java.util.Collection<String> hints)
+	{
+		int tick = client == null ? 0 : client.getTickCount();
+		if (pet.skill == Skill.AGILITY)
+		{
+			SkillPetRegistry.Course c = SkillPetRegistry.courseAt(region);
+			if (c == null || loc == null)
+			{
+				return 0;
+			}
+			boolean atEnd = false;
+			for (WorldPoint end : c.ends)
+			{
+				if (end.getX() == loc.getX() && end.getY() == loc.getY() && end.getPlane() == loc.getPlane())
+				{
+					atEnd = true;
+					break;
+				}
+			}
+			if (!atEnd)
+			{
+				return 0;
+			}
+			recordSkillRolls(pet, c.label, SkillPetRegistry.chance(c.base, false, baseLevel, has200m), 1, tick);
+			return 1;
+		}
+		if ((pet.skill == Skill.WOODCUTTING && region == SkillPetRegistry.REGION_WINTERTODT)
+			|| (pet.skill == Skill.FISHING && region == SkillPetRegistry.REGION_TEMPOROSS))
+		{
+			return 0;
+		}
+		SkillPetRegistry.Method m = SkillPetRegistry.match(pet.skill, delta, hints);
+		if (m == null)
+		{
+			return 0;
+		}
+		recordSkillRolls(pet, m.label, SkillPetRegistry.chance(m.base, m.flat, baseLevel, has200m), 1, tick);
+		return 1;
+	}
+
+	void recordSkillRolls(SkillPetRegistry.Pet pet, String label, double p, int count, int tick)
+	{
+		if (count <= 0 || p <= 0)
+		{
+			return;
+		}
+		SkillPetState st = skillPetState(pet);
+		double ln = Math.log(1.0 - p) * count;
+		st.n += count;
+		st.lnq += ln;
+		st.sn += count;
+		st.slnq += ln;
+		st.last = label;
+		saveSkillPetState(pet, st);
+		AnyPetState any = anyPetState();
+		any.n += count;
+		any.lnq += ln;
+		pset("spet_any", gson.toJson(any));
+		lastRollPet = pet;
+		lastRollTick = tick;
+	}
+
+	/** A pet message that no boss loot claimed: credit the skill rolled within the last few ticks. */
+	void onSkillPetMessage(int tick)
+	{
+		if (lastRollPet == null || tick - lastRollTick > PetPairer.WINDOW_TICKS)
+		{
+			return;
+		}
+		SkillPetState st = skillPetState(lastRollPet);
+		st.got++;
+		st.nAtGot = st.n;
+		st.sn = 0;
+		st.slnq = 0;
+		saveSkillPetState(lastRollPet, st);
+		AnyPetState any = new AnyPetState();
+		any.lastPet = lastRollPet.name;
+		pset("spet_any", gson.toJson(any));
+		if (panel != null)
+		{
+			SwingUtilities.invokeLater(() -> panel.rerender());
+		}
+	}
+
+	/** "I already have it" from the panel: counts the pet without touching the observed rolls. */
+	void claimSkillPet(SkillPetRegistry.Pet pet, boolean have)
+	{
+		SkillPetState st = skillPetState(pet);
+		st.got = have ? st.got + 1 : Math.max(0, st.got - 1);
+		saveSkillPetState(pet, st);
+	}
+
+	void resetSkillPet(SkillPetRegistry.Pet pet)
+	{
+		punset("spet_" + pet.key);
+	}
+
+	SkillPetState skillPetState(SkillPetRegistry.Pet pet)
+	{
+		String raw = pget("spet_" + pet.key, String.class);
+		if (raw != null)
+		{
+			try
+			{
+				SkillPetState st = gson.fromJson(raw, SkillPetState.class);
+				if (st != null)
+				{
+					return st;
+				}
+			}
+			catch (Exception ignored)
+			{
+			}
+		}
+		return new SkillPetState();
+	}
+
+	private void saveSkillPetState(SkillPetRegistry.Pet pet, SkillPetState st)
+	{
+		pset("spet_" + pet.key, gson.toJson(st));
+	}
+
+	/** Base level for the formula; 1 when there is no client (tests). */
+	int baseLevel(Skill s)
+	{
+		return client == null ? 1 : client.getRealSkillLevel(s);
 	}
 
 	void resetBoss(BossRegistry.Boss b)
@@ -1391,6 +1814,10 @@ public class DropTrackerPlugin extends Plugin
 				if (petBoss != null)
 				{
 					recordPet(petBoss);
+				}
+				else
+				{
+					onSkillPetMessage(client.getTickCount());
 				}
 				return;
 			}
@@ -1786,6 +2213,40 @@ public class DropTrackerPlugin extends Plugin
 		try
 		{
 			return ImageUtil.loadImageResource(getClass(), path);
+		}
+		catch (Exception e)
+		{
+			return null;
+		}
+	}
+
+	private final Map<String, BufferedImage> petImgCache = new ConcurrentHashMap<>();
+
+	/** Bundled render of a skilling pet (/resources/com/pudgy/droptracker/pets/<key>.png), or null. */
+	BufferedImage petImage(SkillPetRegistry.Pet p)
+	{
+		if (p == null)
+		{
+			return null;
+		}
+		BufferedImage cached = petImgCache.get(p.key);
+		if (cached != null)
+		{
+			return cached;
+		}
+		String path = "/com/pudgy/droptracker/pets/" + p.key + ".png";
+		if (DropTrackerPlugin.class.getResource(path) == null)
+		{
+			return null;
+		}
+		try
+		{
+			BufferedImage img = ImageUtil.loadImageResource(DropTrackerPlugin.class, path);
+			if (img != null)
+			{
+				petImgCache.put(p.key, img);
+			}
+			return img;
 		}
 		catch (Exception e)
 		{

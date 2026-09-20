@@ -70,11 +70,21 @@ public final class BossRegistry
 		{
 			return new Drop(name, oneInX, false, true, null, true);
 		}
-		/** False for anything that cannot drop again once owned: pets and one-time uniques. */
+		/**
+		 * False only for one-time uniques. Pets keep rolling after the first one (the game
+		 * says "you would have been followed" instead of giving a second pet), so a pet dry
+		 * streak stays meaningful and PetPairer keeps counting those messages.
+		 */
 		public boolean repeatable()
 		{
-			return !pet && !once;
+			return !once;
 		}
+	}
+
+	/** Salvage is sorted by the thousand, so it is kept off the Highest KC panel. */
+	static boolean isSalvage(Boss b)
+	{
+		return b != null && b.display.toLowerCase().contains("salvage");
 	}
 
 	public static final class Boss
@@ -2700,6 +2710,9 @@ public final class BossRegistry
 			new Drop("Dragon nails", 2000),
 			new Drop("Mouldy doll", 3000),
 			new Drop("Dragon cannon barrel", 20000),
+			// Sailing pet, rolled per salvage sorted (wiki, 13 May 2026 update). It also rolls
+			// on other Sailing actions; PetPairer only credits it here when it lands with sort loot.
+			new Drop("Soup", 800000, true, "Pet"),
 			Drop.common("Fish offcuts", 14.1),
 			Drop.common("Uncut opal", 14.1),
 			Drop.common("Uncut jade", 14.1),
