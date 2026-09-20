@@ -350,6 +350,45 @@ public class LegacyImportTest
 	}
 
 	@Test
+	public void markObtainedMakesOneTimeNeedleDoneForeverWithoutCollectionLog()
+	{
+		BossRegistry.Boss gotr = BossRegistry.byLootName("Guardians of the Rift");
+		BossRegistry.Drop needle = null, lantern = null;
+		for (BossRegistry.Drop d : gotr.drops)
+		{
+			if (d.name.equals("Abyssal needle"))
+			{
+				needle = d;
+			}
+			if (d.name.equals("Abyssal lantern"))
+			{
+				lantern = d;
+			}
+		}
+		// Rewards Guardian table: needle "only rolled if the player hasn't received one before";
+		// the lantern has no such footnote (and is also buyable for pearls) so it stays repeatable.
+		assertTrue(needle.once);
+		assertTrue(lantern.repeatable());
+		p.profile.put("kc_guardians_of_the_rift", "451");
+		assertFalse(p.doneForever(gotr, needle));
+
+		p.markObtained(gotr, needle.name);
+		assertEquals(1, p.getUnknownCount(gotr, needle.name));
+		assertEquals("451", p.profile.get("ibase_guardians_of_the_rift_abyssal_needle"));
+		assertTrue(p.doneForever(gotr, needle));
+		// a repeatable item marked obtained just gains an untracked obtain, never becomes "done"
+		p.markObtained(gotr, lantern.name);
+		p.markObtained(gotr, lantern.name);
+		assertEquals(2, p.getUnknownCount(gotr, lantern.name));
+		assertFalse(p.doneForever(gotr, lantern));
+
+		p.clearObtained(gotr, needle.name);
+		assertEquals(0, p.getUnknownCount(gotr, needle.name));
+		assertNull(p.profile.get("ibase_guardians_of_the_rift_abyssal_needle"));
+		assertFalse(p.doneForever(gotr, needle));
+	}
+
+	@Test
 	public void everyVerifiedOneTimeDropIsFlagged()
 	{
 		String[][] expect = {

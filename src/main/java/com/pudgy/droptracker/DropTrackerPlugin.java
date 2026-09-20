@@ -1146,6 +1146,24 @@ public class DropTrackerPlugin extends Plugin
 		}
 	}
 
+	/**
+	 * Manual "I already have this" for users who never import the collection log. Adds one
+	 * untracked obtain, so a one-time unique or pet becomes doneForever and leaves the dry cards.
+	 */
+	void markObtained(BossRegistry.Boss b, String item)
+	{
+		int tracked = getUniqueKcs(b, item).size();
+		int unknown = getUnknownCount(b, item);
+		importObtained(b, item, tracked + unknown + 1);
+	}
+
+	/** Undo of markObtained / collection-log import for one item: drops the untracked count and its KC base. */
+	void clearObtained(BossRegistry.Boss b, String item)
+	{
+		setUnknownCount(b, item, 0);
+		punset("ibase_" + key(b) + "_" + dkey(item));
+	}
+
 	void importObtained(BossRegistry.Boss b, String item, int collectionLogTotal)
 	{
 		int tracked = getUniqueKcs(b, item).size();

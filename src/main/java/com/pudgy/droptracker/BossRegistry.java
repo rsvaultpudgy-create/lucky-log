@@ -4162,7 +4162,7 @@ public final class BossRegistry
 
 		add(new Boss("Guardians of the Rift",
 			new Drop("Catalytic talisman", 200),
-			new Drop("Abyssal needle", 300),
+			Drop.once("Abyssal needle", 300),
 			new Drop("Abyssal lantern", 700),
 			new Drop("Abyssal red dye", 1200),
 			new Drop("Abyssal green dye", 1200),

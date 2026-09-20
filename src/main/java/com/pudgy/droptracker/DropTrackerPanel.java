@@ -820,6 +820,8 @@ class DropTrackerPanel extends PluginPanel
 				dropLine.setIcon(starIcon());
 				dropLine.setIconTextGap(4);
 			}
+			dropLine.setComponentPopupMenu(obtainedMenu(b, d, rawUnknown));
+			dropLine.setToolTipText("Right-click to mark this drop as already obtained");
 			if (collapsible)
 			{
 				dropLine.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
@@ -851,6 +853,37 @@ class DropTrackerPanel extends PluginPanel
 
 		body.revalidate();
 		body.repaint();
+	}
+
+	/**
+	 * Right-click menu for a notable drop: lets a player who never imports the collection log
+	 * tell the plugin they already own an item. A one-time unique or pet marked this way is
+	 * doneForever and disappears from every dry-streak card.
+	 */
+	private javax.swing.JPopupMenu obtainedMenu(BossRegistry.Boss b, BossRegistry.Drop d, int unknown)
+	{
+		javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+		javax.swing.JMenuItem mark = new javax.swing.JMenuItem(
+			d.repeatable() ? "Mark as obtained (+1, untracked KC)" : "Mark as obtained (one-time: stops dry maths)");
+		mark.setEnabled(plugin.hasProfile());
+		mark.addActionListener(e ->
+		{
+			plugin.markObtained(b, d.name);
+			refresh();
+		});
+		menu.add(mark);
+		if (unknown > 0)
+		{
+			javax.swing.JMenuItem clear = new javax.swing.JMenuItem("Clear untracked obtains (" + unknown + ")");
+			clear.setEnabled(plugin.hasProfile());
+			clear.addActionListener(e ->
+			{
+				plugin.clearObtained(b, d.name);
+				refresh();
+			});
+			menu.add(clear);
+		}
+		return menu;
 	}
 
 	private void renderRevenantOdds()
