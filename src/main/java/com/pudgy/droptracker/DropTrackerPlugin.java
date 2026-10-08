@@ -261,6 +261,7 @@ public class DropTrackerPlugin extends Plugin
 		}
 
 		rememberName();
+		ensureTrackingBase(boss);
 		int kc = getKc(boss) + 1;
 		setKc(boss, kc);
 
@@ -703,7 +704,7 @@ public class DropTrackerPlugin extends Plugin
 
 	// Every per-boss key prefix Lucky Log writes. Boss-level ones are "<prefix><boss>",
 	// per-drop ones are "<prefix><boss>_<drop>".
-	private static final String[] BOSS_KEYS = {"kc_", "goal_", "hist_", "totals_", "rsum_", "rcnt_"};
+	private static final String[] BOSS_KEYS = {"kc_", "goal_", "hist_", "totals_", "rsum_", "rcnt_", "tbase_"};
 	private static final String[] DROP_KEYS = {"ukc_", "unk_", "ibase_", "rsnap_", "esum_", "esnap_"};
 	private static final String LEGACY_PROMPTED = "legacy_prompted";
 	private static final String LEGACY_DONE = "legacy_done_";
@@ -944,6 +945,9 @@ public class DropTrackerPlugin extends Plugin
 			shiftOrCopy("rsnap_" + dk, Double.class, legacySum);
 			shiftOrCopy("esnap_" + dk, Double.class, legacyEs);
 		}
+		// Where Lucky Log began watching is re-derived from the merged feed next time it is
+		// asked for: the shared KC may have been imported, or tracked kill by kill.
+		punset("tbase_" + k);
 		pset(LEGACY_DONE + k, true);
 	}
 
@@ -1197,6 +1201,85 @@ public class DropTrackerPlugin extends Plugin
 	{
 		Integer v = pget("ibase_" + key(b) + "_" + dkey(item), Integer.class);
 		return v == null ? -1 : v;
+	}
+
+	// --- tracking baseline ---
+	// KC only ever rises by one per loot event Lucky Log sees; everything above that came
+	// from a collection-log import, the pre-1.2 shared store, or Set KC. Kills the plugin
+	// never watched say nothing about what dropped in them, so a dry streak counts from
+	// here unless the player used Set KC, which is their statement that every kill so far
+	// was dry (tbase_ = 0).
+
+	/**
+	 * KC before the first kill (or reward pull) Lucky Log witnessed for this boss. 0 when
+	 * tracking started from scratch or the player used Set KC.
+	 */
+	int trackingBaseKc(BossRegistry.Boss b)
+	{
+		Integer v = pget("tbase_" + key(b), Integer.class);
+		return v == null ? deriveTrackingBase(b) : v;
+	}
+
+	/** Lock the baseline in before a witnessed kill moves the KC. No-op once stored. */
+	void ensureTrackingBase(BossRegistry.Boss b)
+	{
+		if (pget("tbase_" + key(b), Integer.class) == null)
+		{
+			pset("tbase_" + key(b), deriveTrackingBase(b));
+		}
+	}
+
+	/** The player says every kill up to the current KC was dry: count from zero. */
+	void countAllKillsAsDry(BossRegistry.Boss b)
+	{
+		pset("tbase_" + key(b), 0);
+	}
+
+	/**
+	 * Best reconstruction for data recorded before the baseline existed: the feed's oldest
+	 * kill is the first one watched, so the baseline is one below it. A feed trimmed to
+	 * HISTORY_CAP has lost its start, so it keeps the old behaviour (count everything).
+	 * No feed at all means nothing has been watched yet: the whole current KC is pre-tracking.
+	 */
+	private int deriveTrackingBase(BossRegistry.Boss b)
+	{
+		List<LootEntry> h = getHistory(b);
+		if (h.isEmpty())
+		{
+			return getRaidCount(b) > 0 ? 0 : Math.max(0, getKc(b));
+		}
+		if (h.size() >= HISTORY_CAP)
+		{
+			return 0;
+		}
+		int min = Integer.MAX_VALUE;
+		for (LootEntry e : h)
+		{
+			min = Math.min(min, e.kc);
+		}
+		return Math.max(0, min - 1);
+	}
+
+	/**
+	 * KC this item's dry streak counts from: the last witnessed drop, or where tracking
+	 * began, whichever is later; with imports shown, an import-time KC for an item owned
+	 * only via the collection log moves it later still.
+	 */
+	int dryBaselineKc(BossRegistry.Boss b, String item)
+	{
+		List<Integer> got = getUniqueKcs(b, item);
+		int base = Math.max(got.isEmpty() ? 0 : got.get(got.size() - 1), trackingBaseKc(b));
+		if (got.isEmpty() && showUnknownKc() && getUnknownCount(b, item) > 0)
+		{
+			base = Math.max(base, importBaselineKc(b, item));
+		}
+		return base;
+	}
+
+	/** Kills (or pulls) this item has been dry for, on Lucky Log's own evidence. Never negative. */
+	int drySince(BossRegistry.Boss b, String item)
+	{
+		return Math.max(0, getKc(b) - dryBaselineKc(b, item));
 	}
 
 	// =========================================================================
@@ -1615,6 +1698,7 @@ public class DropTrackerPlugin extends Plugin
 		punset("totals_" + k);
 		punset("rsum_" + k);
 		punset("rcnt_" + k);
+		punset("tbase_" + k);
 		punset(LEGACY_DONE + k);
 		for (BossRegistry.Drop d : b.drops)
 		{

@@ -110,7 +110,7 @@ class DropTrackerPanel extends PluginPanel
 		setKcBtn.setFont(setKcBtn.getFont().deriveFont(11f));
 		setKcBtn.setMargin(new java.awt.Insets(2, 6, 2, 6));
 		setKcBtn.setFocusable(false);
-		setKcBtn.setToolTipText("Set your existing kill count (or reward pulls) so the dry calc is right from the start.");
+		setKcBtn.setToolTipText("Set your existing kill count (or reward pulls). Every one of them then counts as dry for drops you have not received.");
 		setKcBtn.addActionListener(e -> editKc());
 		totalBtn.setFont(totalBtn.getFont().deriveFont(11f));
 		totalBtn.setMargin(new java.awt.Insets(2, 6, 2, 6));
@@ -605,7 +605,11 @@ class DropTrackerPanel extends PluginPanel
 		{
 			return;
 		}
-		String in = JOptionPane.showInputDialog(this, "Set current " + (isReward(b) ? "pulls" : "KC") + " for " + b.display + ":", plugin.getKc(b));
+		String what = isReward(b) ? "pulls" : "KC";
+		String in = JOptionPane.showInputDialog(this,
+			"Set current " + what + " for " + b.display + ":\n"
+				+ "Every " + (isReward(b) ? "pull" : "kill") + " up to this number counts as dry for drops you have not received.",
+			plugin.getKc(b));
 		if (in == null)
 		{
 			return;
@@ -613,6 +617,7 @@ class DropTrackerPanel extends PluginPanel
 		try
 		{
 			plugin.setKc(b, Integer.parseInt(in.trim()));
+			plugin.countAllKillsAsDry(b);
 		}
 		catch (NumberFormatException ignored)
 		{
@@ -769,7 +774,7 @@ class DropTrackerPanel extends PluginPanel
 			}
 			else if (gd != null)
 			{
-				int since = kc - plugin.getLastDropKc(b, goal);
+				int since = plugin.drySince(b, goal);
 				Double smart = plugin.smartChanceHave(b, goal);
 				double p = (smart != null) ? smart : 1.0 - Math.pow(1.0 - 1.0 / gd.oneInX, Math.max(0, since));
 				h.append("<br><br>Goal: ").append(goal)
@@ -778,6 +783,15 @@ class DropTrackerPanel extends PluginPanel
 					.append("<br><font color='").append(fadeWhiteToGreen(p)).append("'>")
 					.append(String.format("%.1f%% would have it by now%s", p * 100, smart != null ? " (points-weighted)" : ""))
 					.append("</font>");
+				// Kills the plugin never watched are not counted as dry; say so when that
+				// is why the streak is shorter than the KC, and how to count them anyway.
+				int tbase = plugin.trackingBaseKc(b);
+				if (tbase > 0 && tbase > plugin.getLastDropKc(b, goal) && since < kc)
+				{
+					h.append("<br><font color='#888888'>counting from ").append(unitCap(b)).append(" ").append(tbase)
+						.append(", where Lucky Log started watching; use Set ").append(unitCap(b))
+						.append(" to count all of them</font>");
+				}
 			}
 		}
 		h.append("</body></html>");

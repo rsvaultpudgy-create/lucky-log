@@ -289,7 +289,7 @@ class ShareCardRenderer
 			}
 			else
 			{
-				int since = kc - plugin.getLastDropKc(b, d.name);
+				int since = plugin.drySince(b, d.name);
 				p = 1.0 - Math.pow(1.0 - 1.0 / d.oneInX, Math.max(0, since));
 			}
 			status = String.format("%.1f%% would have it by now", p * 100);
@@ -371,32 +371,23 @@ class ShareCardRenderer
 				}
 				// current dry streak on this unique — also counts toward all-time,
 				// so all-time driest can never show less dry than the current streak.
-				// Items owned only via collection-log import have unknown obtain KCs:
-				// count from the import-time KC if recorded, otherwise skip them —
-				// an item the player already owns must never headline "driest".
+				// drySince counts only kills Lucky Log watched (or everything, after
+				// Set KC) and, with imports shown, from the import-time KC for an item
+				// owned only via the collection log — so an owned item cannot headline
+				// "driest" on kills the plugin never saw.
 				// Pets and one-time uniques already owned have no streak at all: the
 				// game stopped rolling them the moment they dropped.
 				if (eligible && kc > 0 && !plugin.doneForever(b, d))
 				{
-					int baseline = plugin.getLastDropKc(b, d.name);
-					int unknown = plugin.getUnknownCount(b, d.name);
-					if (unknown > 0 && gotKcs.isEmpty())
+					int since = plugin.drySince(b, d.name);
+					double ratio = since / d.oneInX;
+					if (since > 0 && (curDry == null || ratio > curDry.ratio))
 					{
-						int ib = plugin.importBaselineKc(b, d.name);
-						baseline = ib < 0 ? -1 : Math.max(baseline, ib);
+						curDry = highlight(b, d.name, ratio, since, true, pctByNow(d.oneInX, since));
 					}
-					if (baseline >= 0)
+					if (since > 0 && (allDry == null || ratio > allDry.ratio))
 					{
-						int since = kc - baseline;
-						double ratio = since / d.oneInX;
-						if (since > 0 && (curDry == null || ratio > curDry.ratio))
-						{
-							curDry = highlight(b, d.name, ratio, since, true, pctByNow(d.oneInX, since));
-						}
-						if (since > 0 && (allDry == null || ratio > allDry.ratio))
-						{
-							allDry = highlight(b, d.name, ratio, since, true, pctByNow(d.oneInX, since));
-						}
+						allDry = highlight(b, d.name, ratio, since, true, pctByNow(d.oneInX, since));
 					}
 				}
 				// historical gaps between hits

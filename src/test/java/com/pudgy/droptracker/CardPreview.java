@@ -275,6 +275,12 @@ public final class CardPreview
 		}
 
 		@Override
+		int trackingBaseKc(BossRegistry.Boss b)
+		{
+			return 0;
+		}
+
+		@Override
 		long unitPrice(int id)
 		{
 			Long v = priceById.get(id);

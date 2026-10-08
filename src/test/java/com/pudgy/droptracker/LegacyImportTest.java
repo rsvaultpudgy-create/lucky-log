@@ -52,6 +52,13 @@ public class LegacyImportTest
 		final Map<String, String> legacy = new HashMap<>();
 		final Map<String, String> profile = new HashMap<>();
 		boolean loggedIn = true;
+		Boolean showUnknown = null; // null = plugin default (on)
+
+		@Override
+		boolean showUnknownKc()
+		{
+			return showUnknown == null ? super.showUnknownKc() : showUnknown;
+		}
 
 		@Override
 		<T> T pget(String key, Class<T> type)
@@ -413,5 +420,128 @@ public class LegacyImportTest
 			}
 			assertTrue(e[0] + " / " + e[1] + " missing", found);
 		}
+	}
+
+	// --- tracking baseline: dry streaks count only kills Lucky Log watched ---
+
+	private static String feed(int... kcs)
+	{
+		StringBuilder sb = new StringBuilder("[");
+		for (int i = 0; i < kcs.length; i++)
+		{
+			sb.append(i > 0 ? "," : "").append("{\"kc\":").append(kcs[i]).append(",\"items\":[{\"id\":2,\"name\":\"Bones\",\"qty\":1}]}");
+		}
+		return sb.append("]").toString();
+	}
+
+	@Test
+	public void importedKcIsNotDryUntilWatched()
+	{
+		// a collection-log import set the KC; nothing has been watched
+		p.profile.put("kc_zulrah", "252");
+		assertEquals(252, p.trackingBaseKc(zul));
+		assertEquals(0, p.drySince(zul, "Tanzanite fang"));
+
+		// first witnessed kill locks the baseline in, then one dry kill
+		p.ensureTrackingBase(zul);
+		p.profile.put("kc_zulrah", "253");
+		p.profile.put("hist_zulrah", feed(253));
+		assertEquals("252", p.profile.get("tbase_zulrah"));
+		assertEquals(1, p.drySince(zul, "Tanzanite fang"));
+	}
+
+	@Test
+	public void freshBossStartsFromZero()
+	{
+		p.ensureTrackingBase(zul);
+		assertEquals("0", p.profile.get("tbase_zulrah"));
+		p.profile.put("kc_zulrah", "7");
+		p.profile.put("hist_zulrah", feed(1, 2, 3, 4, 5, 6, 7));
+		assertEquals(7, p.drySince(zul, "Tanzanite fang"));
+	}
+
+	@Test
+	public void upgradeDerivesBaselineFromOldestWatchedKill()
+	{
+		// pre-baseline data: KC 199 came from an import, kills 200..253 were watched
+		p.profile.put("kc_zulrah", "253");
+		p.profile.put("hist_zulrah", feed(200, 201, 202, 253));
+		assertEquals(199, p.trackingBaseKc(zul));
+		assertEquals(54, p.drySince(zul, "Tanzanite fang"));
+		assertNull(p.profile.get("tbase_zulrah")); // reading never writes
+		p.ensureTrackingBase(zul);
+		assertEquals("199", p.profile.get("tbase_zulrah"));
+	}
+
+	@Test
+	public void trimmedFeedKeepsOldBehaviour()
+	{
+		int[] kcs = new int[80];
+		for (int i = 0; i < 80; i++)
+		{
+			kcs[i] = 500 + i;
+		}
+		p.profile.put("kc_zulrah", "579");
+		p.profile.put("hist_zulrah", feed(kcs));
+		assertEquals(0, p.trackingBaseKc(zul));
+		assertEquals(579, p.drySince(zul, "Tanzanite fang"));
+	}
+
+	@Test
+	public void setKcCountsEveryKillAsDry()
+	{
+		p.profile.put("kc_zulrah", "253");
+		p.profile.put("tbase_zulrah", "199");
+		assertEquals(54, p.drySince(zul, "Tanzanite fang"));
+		p.setKc(zul, 253);
+		p.countAllKillsAsDry(zul);
+		assertEquals(253, p.drySince(zul, "Tanzanite fang"));
+	}
+
+	@Test
+	public void lastWatchedDropBeatsBaseline()
+	{
+		p.profile.put("kc_zulrah", "253");
+		p.profile.put("tbase_zulrah", "199");
+		p.profile.put("ukc_zulrah_tanzanite_fang", "[240]");
+		assertEquals(13, p.drySince(zul, "Tanzanite fang"));
+	}
+
+	@Test
+	public void importedOwnershipFollowsTheToggle()
+	{
+		p.profile.put("kc_zulrah", "253");
+		p.profile.put("tbase_zulrah", "199");
+		p.profile.put("unk_zulrah_tanzanite_fang", "1");
+		p.profile.put("ibase_zulrah_tanzanite_fang", "230");
+		p.showUnknown = true;
+		assertEquals(23, p.drySince(zul, "Tanzanite fang"));
+		p.showUnknown = false;
+		assertEquals(54, p.drySince(zul, "Tanzanite fang"));
+		// owned via a pre-1.2 import that recorded no import KC: baseline still applies
+		p.profile.remove("ibase_zulrah_tanzanite_fang");
+		p.showUnknown = true;
+		assertEquals(54, p.drySince(zul, "Tanzanite fang"));
+	}
+
+	@Test
+	public void legacyImportRederivesBaselineFromMergedFeed()
+	{
+		p.profile.put("kc_" + vk, "10");
+		p.profile.put("hist_" + vk, feed(3, 10));
+		p.profile.put("tbase_" + vk, "0");
+		p.importLegacy(vork);
+		assertNull(p.profile.get("tbase_" + vk));
+		// shared feed watched kills 99 and 100; own kills shift to 103 and 110
+		assertEquals(98, p.trackingBaseKc(vork));
+	}
+
+	@Test
+	public void resetClearsBaseline()
+	{
+		p.profile.put("kc_zulrah", "253");
+		p.profile.put("tbase_zulrah", "199");
+		p.resetBoss(zul);
+		assertNull(p.profile.get("tbase_zulrah"));
 	}
 }
