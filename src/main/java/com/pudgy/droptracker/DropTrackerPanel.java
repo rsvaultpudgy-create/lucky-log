@@ -783,15 +783,6 @@ class DropTrackerPanel extends PluginPanel
 					.append("<br><font color='").append(fadeWhiteToGreen(p)).append("'>")
 					.append(String.format("%.1f%% would have it by now%s", p * 100, smart != null ? " (points-weighted)" : ""))
 					.append("</font>");
-				// Kills the plugin never watched are not counted as dry; say so when that
-				// is why the streak is shorter than the KC, and how to count them anyway.
-				int tbase = plugin.trackingBaseKc(b);
-				if (tbase > 0 && tbase > plugin.getLastDropKc(b, goal) && since < kc)
-				{
-					h.append("<br><font color='#888888'>counting from ").append(unitCap(b)).append(" ").append(tbase)
-						.append(", where Lucky Log started watching; use Set ").append(unitCap(b))
-						.append(" to count all of them</font>");
-				}
 			}
 		}
 		h.append("</body></html>");
@@ -1003,8 +994,6 @@ class DropTrackerPanel extends PluginPanel
 			h.append("<br><font color='#9acd32'>").append(String.format("%.1f%%", Math.min(99.9, 100.0 * (1.0 - Math.exp(any.lnq)))))
 				.append(" would have any pet ").append(any.lastPet != null ? "since " + any.lastPet : "by now").append("</font>");
 		}
-		h.append("<br><br><font color='#888888'>Every chop, catch, ore, lap, pickpocket, check-health, "
-			+ "essence and sort is a roll at the wiki rate for your base level. Counting started when this version was installed.</font>");
 		h.append("</body></html>");
 		header.setText(h.toString());
 		body.removeAll();

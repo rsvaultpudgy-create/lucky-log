@@ -112,6 +112,27 @@ public class SkillPetTest
 	}
 
 	@Test
+	public void anglerOutfitXpStillMatchesTheFish()
+	{
+		// full angler's: shark 110 -> 112.75, lobster 90 -> 92.25, both whole-number rounded by the client
+		assertEquals("Shark", SkillPetRegistry.match(Skill.FISHING, 112, java.util.Arrays.asList("raw shark")).label);
+		assertEquals("Shark", SkillPetRegistry.match(Skill.FISHING, 113, java.util.Arrays.asList("raw shark")).label);
+		assertEquals("Lobster", SkillPetRegistry.match(Skill.FISHING, 92, java.util.Collections.emptyList()).label);
+		assertEquals("Lobster", SkillPetRegistry.match(Skill.FISHING, 90, java.util.Collections.emptyList()).label);
+		// fish barrel hides the item: the fishing-spot option still identifies the method
+		assertEquals("Shark", SkillPetRegistry.match(Skill.FISHING, 112, java.util.Arrays.asList("opt:harpoon")).label);
+		assertEquals("Lobster", SkillPetRegistry.match(Skill.FISHING, 92, java.util.Arrays.asList("opt:cage")).label);
+		// genuine trawling krill still matches by item
+		assertEquals("Giant krill (trawling)", SkillPetRegistry.match(Skill.FISHING, 112, java.util.Arrays.asList("raw giant krill")).label);
+		// partial outfit (one piece, +0.4%): yew 175 -> 175.7
+		assertEquals("Yew", SkillPetRegistry.match(Skill.WOODCUTTING, 176, java.util.Arrays.asList("yew logs")).label);
+		// prospector: runite 125 -> 128.1
+		assertEquals("Runite", SkillPetRegistry.match(Skill.MINING, 128, java.util.Collections.emptyList()).label);
+		// thieving has no xp outfit, so the range is not widened there
+		assertNull(SkillPetRegistry.match(Skill.THIEVING, 9, java.util.Collections.emptyList()));
+	}
+
+	@Test
 	public void chanceUsesBaseLevelCappedAt99AndFlatRatesIgnoreLevel()
 	{
 		assertEquals(1.0 / (145013 - 25 * 99), SkillPetRegistry.chance(145013, false, 99, false), 1e-15);

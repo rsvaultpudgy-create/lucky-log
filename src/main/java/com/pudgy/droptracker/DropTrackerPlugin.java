@@ -1335,6 +1335,7 @@ public class DropTrackerPlugin extends Plugin
 	private final List<PendingXp> pendingXp = new ArrayList<>();
 	private final Map<Integer, Integer> invPrevTick = new java.util.HashMap<>();
 	private String lastThieveTarget;
+	private String lastFishOption;
 
 	private static final class PendingXp
 	{
@@ -1423,6 +1424,13 @@ public class DropTrackerPlugin extends Plugin
 		{
 			lastThieveTarget = Text.removeTags(e.getMenuTarget());
 		}
+		// Net / Bait / Lure / Cage / Harpoon / Big Net on a fishing spot: the method when a fish
+		// barrel swallows the catch before the inventory shows it
+		String tgt = Text.removeTags(e.getMenuTarget());
+		if (tgt != null && tgt.toLowerCase().contains("fishing spot"))
+		{
+			lastFishOption = "opt:" + opt.toLowerCase();
+		}
 	}
 
 	@Subscribe
@@ -1434,6 +1442,10 @@ public class DropTrackerPlugin extends Plugin
 			if (lastThieveTarget != null)
 			{
 				hints.add(lastThieveTarget);
+			}
+			if (lastFishOption != null)
+			{
+				hints.add(lastFishOption);
 			}
 			for (PendingXp px : pendingXp)
 			{

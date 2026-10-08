@@ -80,7 +80,7 @@ final class SkillPetRegistry
 		final double xp;
 		final double base;
 		final boolean flat;
-		/** Lower-case item that lands in the inventory on this action, or NPC/stall name for Thieving; null when unknown. */
+		/** Lower-case item gained, NPC/stall name (Thieving) or "opt:<fishing option>"; alternatives split by '|'; null when unknown. */
 		final String hint;
 
 		Method(Pet pet, String label, double xp, double base, boolean flat, String hint)
@@ -97,6 +97,16 @@ final class SkillPetRegistry
 		boolean matches(int d)
 		{
 			return d == (int) Math.floor(xp) || d == (int) Math.ceil(xp);
+		}
+
+		/**
+		 * Same, but allowing a skilling-outfit bonus of anything up to 2.5% (angler, lumberjack,
+		 * prospector, farmer's, horizon's lure: each piece adds a fraction, the set adds 2.5%),
+		 * so a shark with full angler's (112.75) is still a shark.
+		 */
+		boolean matchesWithOutfit(int d)
+		{
+			return d >= (int) Math.floor(xp) && d <= (int) Math.ceil(xp * 1.025);
 		}
 	}
 
@@ -131,6 +141,9 @@ final class SkillPetRegistry
 		BABY_CHINCHOMPA, BEAVER, GIANT_SQUIRREL, HERON, RIFT_GUARDIAN, ROCK_GOLEM, ROCKY, SOUP, TANGLEROOT));
 
 	private static final Map<Skill, List<Method>> METHODS = new EnumMap<>(Skill.class);
+	/** Skills with an xp-boosting outfit: the xp drop can be up to 2.5% above the table value. */
+	private static final java.util.Set<Skill> OUTFIT_SKILLS = java.util.EnumSet.of(
+		Skill.FISHING, Skill.WOODCUTTING, Skill.MINING, Skill.FARMING, Skill.SAILING);
 	private static final List<Course> COURSES = new ArrayList<>();
 
 	// Regions where the skill gives xp but the wiki says the pet is never rolled.
@@ -171,35 +184,36 @@ final class SkillPetRegistry
 		m(BABY_CHINCHOMPA, "Black chinchompa", 315, 82758);
 
 		// ---- Woodcutting: per log (felling-axe "no log" swings still roll on the xp drop) ----
-		m(BEAVER, "Normal tree", 25, 317647);
-		m(BEAVER, "Oak", 37.5, 361146);
-		m(BEAVER, "Willow", 67.5, 289286);
-		m(BEAVER, "Teak", 85, 264336);
-		m(BEAVER, "Jatoba", 92, 264336);
-		m(BEAVER, "Juniper", 35, 360000);
-		m(BEAVER, "Maple", 100, 221918);
-		m(BEAVER, "Maple (Kandarin diary)", 110, 221918);
-		m(BEAVER, "Hollow tree", 82.5, 214367);
-		m(BEAVER, "Mahogany", 125, 220623);
-		m(BEAVER, "Arctic pine", 40, 145758);
+		m(BEAVER, "Normal tree", 25, 317647, "logs");
+		m(BEAVER, "Oak", 37.5, 361146, "oak logs");
+		m(BEAVER, "Willow", 67.5, 289286, "willow logs");
+		m(BEAVER, "Teak", 85, 264336, "teak logs");
+		m(BEAVER, "Jatoba", 92, 264336, "jatoba logs");
+		m(BEAVER, "Juniper", 35, 360000, "juniper logs");
+		m(BEAVER, "Maple", 100, 221918, "maple logs");
+		m(BEAVER, "Maple (Kandarin diary)", 110, 221918, "maple logs");
+		m(BEAVER, "Hollow tree", 82.5, 214367, "bark");
+		m(BEAVER, "Mahogany", 125, 220623, "mahogany logs");
+		m(BEAVER, "Arctic pine", 40, 145758, "arctic pine logs");
 		m(BEAVER, "Yew", 175, 145013, "Yew logs");
 		m(BEAVER, "Ironwood", 175, 72321, "Ironwood logs");
-		m(BEAVER, "Blisterwood", 76, 289286);
-		m(BEAVER, "Sulliuscep", 127, 343000);
-		m(BEAVER, "Camphor", 143.5, 145013);
-		m(BEAVER, "Magic", 250, 72321);
-		m(BEAVER, "Engorged bloodwood", 165, 319283);
-		m(BEAVER, "Redwood", 380, 72321);
-		m(BEAVER, "Rosewood", 212.5, 72321);
+		m(BEAVER, "Blisterwood", 76, 289286, "blisterwood logs");
+		m(BEAVER, "Sulliuscep", 127, 343000, "mushroom");
+		m(BEAVER, "Camphor", 143.5, 145013, "camphor logs");
+		m(BEAVER, "Magic", 250, 72321, "magic logs");
+		m(BEAVER, "Engorged bloodwood", 165, 319283, "bloodwood logs");
+		m(BEAVER, "Redwood", 380, 72321, "redwood logs");
+		m(BEAVER, "Rosewood", 212.5, 72321, "rosewood logs");
 
 		// ---- Mining: per ore / pay-dirt / blast-mine excavation / VM fragment ----
-		m(ROCK_GOLEM, "Clay", 5, 741600);
-		m(ROCK_GOLEM, "Copper / Tin", 17.5, 741600);
-		m(ROCK_GOLEM, "Limestone", 26.5, 741600);
+		m(ROCK_GOLEM, "Clay", 5, 741600, "clay");
+		m(ROCK_GOLEM, "Copper", 17.5, 741600, "copper ore");
+		m(ROCK_GOLEM, "Tin", 17.5, 741600, "tin ore");
+		m(ROCK_GOLEM, "Limestone", 26.5, 741600, "limestone");
 		m(ROCK_GOLEM, "Iron", 35, 741600, "Iron ore");
 		m(ROCK_GOLEM, "Volcanic sulphur", 35, 710000, "Volcanic sulphur");
-		m(ROCK_GOLEM, "Silver", 40, 741600);
-		m(ROCK_GOLEM, "Lead", 40.5, 741600);
+		m(ROCK_GOLEM, "Silver", 40, 741600, "silver ore");
+		m(ROCK_GOLEM, "Lead", 40.5, 741600, "lead ore");
 		m(ROCK_GOLEM, "Barronite", 16, 741600);
 		m(ROCK_GOLEM, "Barronite deposit", 32, 741600);
 		m(ROCK_GOLEM, "Calcified rock", 36, 741600);
@@ -215,69 +229,69 @@ final class SkillPetRegistry
 		m(ROCK_GOLEM, "Granite (5kg)", 75, 741600);
 		m(ROCK_GOLEM, "Gold", 65, 296640, "Gold ore");
 		m(ROCK_GOLEM, "Gem rock", 65, 211886, "Uncut");
-		m(ROCK_GOLEM, "Ash pile", 10, 741600);
-		m(ROCK_GOLEM, "Mithril", 80, 148320);
-		m(ROCK_GOLEM, "Nickel", 80.5, 247200);
-		m(ROCK_GOLEM, "Adamantite", 95, 59328);
-		m(ROCK_GOLEM, "Runite", 125, 42377);
-		m(ROCK_GOLEM, "Amethyst", 240, 46350);
+		m(ROCK_GOLEM, "Ash pile", 10, 741600, "soda ash");
+		m(ROCK_GOLEM, "Mithril", 80, 148320, "mithril ore");
+		m(ROCK_GOLEM, "Nickel", 80.5, 247200, "nickel ore");
+		m(ROCK_GOLEM, "Adamantite", 95, 59328, "adamantite ore");
+		m(ROCK_GOLEM, "Runite", 125, 42377, "runite ore");
+		m(ROCK_GOLEM, "Amethyst", 240, 46350, "amethyst");
 		m(ROCK_GOLEM, "Blast mine", 20, 123600);
 		m(ROCK_GOLEM, "Blast mine (prospector)", 20.5, 123600);
 		m(ROCK_GOLEM, "Sunstone", 15, 741600);
-		m(ROCK_GOLEM, "Crashed star", 32, 521550);
+		m(ROCK_GOLEM, "Crashed star", 32, 521550, "stardust");
 		m(ROCK_GOLEM, "Crashed star (F2P)", 16, 741600);
 
 		// ---- Fishing: per catch (minnows / karambwanji / trawling: per xp drop) ----
-		m(HERON, "Shrimps", 10, 870330);
-		m(HERON, "Anchovies", 40, 870330, "Raw anchovies");
+		m(HERON, "Shrimps", 10, 870330, "raw shrimps|opt:net");
+		m(HERON, "Anchovies", 40, 870330, "raw anchovies|opt:net");
 		m(HERON, "Common tench", 40, 636833, "Common tench");
-		m(HERON, "Karambwanji", 5, 443697);
-		m(HERON, "Sardine", 20, 1056000, "Raw sardine");
-		m(HERON, "Mackerel", 20, 1147827, "Raw mackerel");
-		m(HERON, "Herring", 30, 1056000);
-		m(HERON, "Cod", 45, 1147827);
-		m(HERON, "Bass", 100, 1147827, "Raw bass");
-		m(HERON, "Swordfish", 100, 257770, "Raw swordfish");
-		m(HERON, "Trout", 50, 923616, "Raw trout");
+		m(HERON, "Karambwanji", 5, 443697, "raw karambwanji");
+		m(HERON, "Sardine", 20, 1056000, "raw sardine|opt:bait");
+		m(HERON, "Mackerel", 20, 1147827, "raw mackerel|opt:big net");
+		m(HERON, "Herring", 30, 1056000, "raw herring|opt:bait");
+		m(HERON, "Cod", 45, 1147827, "raw cod|opt:big net");
+		m(HERON, "Bass", 100, 1147827, "raw bass|opt:big net");
+		m(HERON, "Swordfish", 100, 257770, "raw swordfish|opt:harpoon");
+		m(HERON, "Trout", 50, 923616, "raw trout|opt:lure");
 		m(HERON, "Leaping trout", 50, 1280862, "Leaping trout");
 		m(HERON, "Karambwan", 50, 170874, "Raw karambwan");
-		m(HERON, "Salmon", 70, 923616, "Raw salmon");
+		m(HERON, "Salmon", 70, 923616, "raw salmon|opt:lure");
 		m(HERON, "Leaping salmon", 70, 1280862, "Leaping salmon");
-		m(HERON, "Pike", 60, 305792);
+		m(HERON, "Pike", 60, 305792, "raw pike|opt:bait");
 		m(HERON, "Rainbow fish", 80, 137739, "Raw rainbow fish");
-		m(HERON, "Tuna", 80, 257770, "Raw tuna");
+		m(HERON, "Tuna", 80, 257770, "raw tuna|opt:harpoon");
 		m(HERON, "Cave eel", 80, 257770, "Raw cave eel");
 		m(HERON, "Leaping sturgeon", 80, 1280862, "Leaping sturgeon");
-		m(HERON, "Lobster", 90, 116129);
-		m(HERON, "Bluegill", 11.5, 636833);
-		m(HERON, "Mottled eel", 65, 636833);
-		m(HERON, "Monkfish", 120, 138583, "Raw monkfish");
-		m(HERON, "Anglerfish", 120, 78649, "Raw anglerfish");
-		m(HERON, "Shark", 110, 82243);
-		m(HERON, "Infernal eel", 95, 165000);
-		m(HERON, "Anglerfish (diabolic worms)", 79.2, 78649);
-		m(HERON, "Minnow", 26.1, 977778);
-		m(HERON, "Dark crab", 130, 149434);
-		m(HERON, "Sacred eel", 105, 99000);
-		m(HERON, "Guppy", 8, 820330);
-		m(HERON, "Cavefish", 16, 300792);
-		m(HERON, "Tetra", 24, 257770);
-		m(HERON, "Catfish", 33, 152120);
-		m(HERON, "Swordtip squid", 55, 257770);
-		m(HERON, "Jumbo squid", 75, 257770);
-		m(HERON, "Giant krill", 22.5, 257770);
-		m(HERON, "Giant krill (trawling)", 112.5, 257770);
-		m(HERON, "Haddock", 25.7, 247770);
-		m(HERON, "Haddock (trawling)", 128.5, 247770);
-		m(HERON, "Yellowfin", 31.1, 237770);
-		m(HERON, "Yellowfin (trawling)", 155.5, 237770);
-		m(HERON, "Halibut", 39.1, 227770);
-		m(HERON, "Halibut (trawling)", 195.5, 227770);
-		m(HERON, "Bluefin", 44.1, 217770);
-		m(HERON, "Bluefin (trawling)", 220.5, 217770);
-		m(HERON, "Marlin", 53.1, 207770);
-		m(HERON, "Marlin (trawling)", 265.5, 207770);
-		m(HERON, "Leechfin", 33.2, 1847827);
+		m(HERON, "Lobster", 90, 116129, "raw lobster|opt:cage");
+		m(HERON, "Bluegill", 11.5, 636833, "bluegill");
+		m(HERON, "Mottled eel", 65, 636833, "mottled eel");
+		m(HERON, "Monkfish", 120, 138583, "raw monkfish|opt:net");
+		m(HERON, "Anglerfish", 120, 78649, "raw anglerfish|opt:bait");
+		m(HERON, "Shark", 110, 82243, "raw shark|opt:harpoon");
+		m(HERON, "Infernal eel", 95, 165000, "infernal eel");
+		m(HERON, "Anglerfish (diabolic worms)", 79.2, 78649, "raw anglerfish");
+		m(HERON, "Minnow", 26.1, 977778, "minnow");
+		m(HERON, "Dark crab", 130, 149434, "raw dark crab|opt:cage");
+		m(HERON, "Sacred eel", 105, 99000, "sacred eel");
+		m(HERON, "Guppy", 8, 820330, "raw guppy");
+		m(HERON, "Cavefish", 16, 300792, "raw cavefish");
+		m(HERON, "Tetra", 24, 257770, "raw tetra");
+		m(HERON, "Catfish", 33, 152120, "raw catfish");
+		m(HERON, "Swordtip squid", 55, 257770, "raw swordtip squid");
+		m(HERON, "Jumbo squid", 75, 257770, "raw jumbo squid");
+		m(HERON, "Giant krill", 22.5, 257770, "raw giant krill");
+		m(HERON, "Giant krill (trawling)", 112.5, 257770, "raw giant krill");
+		m(HERON, "Haddock", 25.7, 247770, "raw haddock");
+		m(HERON, "Haddock (trawling)", 128.5, 247770, "raw haddock");
+		m(HERON, "Yellowfin", 31.1, 237770, "raw yellowfin");
+		m(HERON, "Yellowfin (trawling)", 155.5, 237770, "raw yellowfin");
+		m(HERON, "Halibut", 39.1, 227770, "raw halibut");
+		m(HERON, "Halibut (trawling)", 195.5, 227770, "raw halibut");
+		m(HERON, "Bluefin", 44.1, 217770, "raw bluefin");
+		m(HERON, "Bluefin (trawling)", 220.5, 217770, "raw bluefin");
+		m(HERON, "Marlin", 53.1, 207770, "raw marlin");
+		m(HERON, "Marlin (trawling)", 265.5, 207770, "raw marlin");
+		m(HERON, "Leechfin", 33.2, 1847827, "raw leechfin");
 
 		// ---- Thieving: per successful pickpocket / stall / chest (failures give no xp) ----
 		m(ROCKY, "Man / Woman / Villager", 8, 257211);
@@ -477,13 +491,7 @@ final class SkillPetRegistry
 		List<Method> cands = new ArrayList<>();
 		for (Method m : list)
 		{
-			boolean hit = m.matches(deltaXp);
-			if (!hit && skill == Skill.FARMING)
-			{
-				// farmer's outfit scales every farming drop by 2.5%
-				double scaled = m.xp * 1.025;
-				hit = deltaXp == (int) Math.floor(scaled) || deltaXp == (int) Math.ceil(scaled);
-			}
+			boolean hit = OUTFIT_SKILLS.contains(skill) ? m.matchesWithOutfit(deltaXp) : m.matches(deltaXp);
 			if (hit)
 			{
 				cands.add(m);
@@ -501,11 +509,14 @@ final class SkillPetRegistry
 				{
 					continue;
 				}
-				for (String h : hints)
+				for (String alt : m.hint.split("\\|"))
 				{
-					if (h != null && h.toLowerCase().startsWith(m.hint))
+					for (String h : hints)
 					{
-						return m;
+						if (h != null && h.toLowerCase().startsWith(alt))
+						{
+							return m;
+						}
 					}
 				}
 			}
