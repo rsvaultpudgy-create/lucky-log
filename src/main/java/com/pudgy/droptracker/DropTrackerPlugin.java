@@ -1933,13 +1933,24 @@ public class DropTrackerPlugin extends Plugin
 			}
 			else if (msg.contains("completed Tombs of Amascut"))
 			{
-				int rl = client.getVarbitValue(14380);
-				int slot = client.getVarbitValue(14354);
-				int pts = (slot >= 0 && slot < 8) ? client.getVarbitValue(14346 + slot) : 0;
-				double p = toaPurple(pts, rl);
-				if (p > 0)
+				// Points arrive in their own chat line a moment later ("Total points: X, Personal
+				// points: Y (Z%)"), by which time the raid-level varbit may already be cleared,
+				// so remember the level now and finish the roll when the points line lands.
+				pendingToaLevel = client.getVarbitValue(14380);
+				pendingToaTick = client.getTickCount();
+			}
+			else if (pendingToaLevel > 0 && client.getTickCount() - pendingToaTick < 200)
+			{
+				Matcher pm = TOA_POINTS_MSG.matcher(msg);
+				if (pm.find())
 				{
-					recordRaid("Tombs of Amascut", p);
+					int pts = Integer.parseInt(pm.group(1).replace(",", ""));
+					double p = toaPurple(pts, pendingToaLevel);
+					pendingToaLevel = 0;
+					if (p > 0)
+					{
+						recordRaid("Tombs of Amascut", p);
+					}
 				}
 			}
 			else if (msg.contains("completed Theatre of Blood"))
@@ -1952,6 +1963,10 @@ public class DropTrackerPlugin extends Plugin
 		{
 		}
 	}
+
+	private static final Pattern TOA_POINTS_MSG = Pattern.compile("Personal points: ([\\d,]+)");
+	private int pendingToaLevel;
+	private int pendingToaTick;
 
 	private static double clamp(double v, double lo, double hi)
 	{
